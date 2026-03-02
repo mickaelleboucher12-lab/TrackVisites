@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrackVisites - Gestion Haut de Gamme</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap"
+        rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <i data-lucide="bar-chart-3"></i>
+                </div>
+                <h1>TrackVisites</h1>
+            </div>
+
+            <nav class="main-nav">
+                <button class="nav-item active" id="nav-counter">
+                    <i data-lucide="plus-circle"></i>
+                    <span>Compteurs</span>
+                </button>
+                <button class="nav-item" id="nav-history">
+                    <i data-lucide="calendar"></i>
+                    <span>Historique</span>
+                </button>
+                <button class="nav-item" id="nav-dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="theme-toggle" id="theme-toggle">
+                    <i data-lucide="moon" class="dark-icon"></i>
+                    <i data-lucide="sun" class="light-icon"></i>
+                    <span>Mode Sombre</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h2 id="page-title">Compteurs d'accueil</h2>
+                    <p id="current-date"></p>
+                </div>
+                <div class="header-right">
+                    <div class="office-selector-wrapper">
+                        <label for="office-select">Bureau :</label>
+                        <select id="office-select">
+                            <option value="montreux">Montreux</option>
+                            <option value="la-chartrie">La Chartrie</option>
+                            <option value="st-exupery">St Exupéry</option>
+                            <option value="le-pre">Le Pré</option>
+                            <option value="la-suze">La Suze</option>
+                        </select>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Section Counter (Default) -->
+            <section id="counter-section" class="view-section active">
+                <div class="welcome-banner">
+                    <div class="banner-glass"></div>
+                    <div class="banner-content">
+                        <div class="user-profile">
+                            <div class="avatar" id="user-avatar">
+                                <i data-lucide="user"></i>
+                            </div>
+                            <div class="welcome-text">
+                                <span class="greeting">Content de vous revoir,</span>
+                                <h2 class="user-name">Agent d'accueil</h2>
+                            </div>
+                        </div>
+                        <div class="banner-date">
+                            <span id="banner-day-name">Lundi</span>
+                            <span id="banner-full-date">02 Mars 2026</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="counter-grid">
+                    <!-- Locataires Card -->
+                    <div class="counter-card locataire">
+                        <div class="card-glass"></div>
+                        <div class="card-content">
+                            <h3>Locataires</h3>
+                            <div class="count-display">
+                                <span id="count-locataire">0</span>
+                            </div>
+                            <div class="controls">
+                                <button class="btn-count minus" onclick="updateCount('locataire', -1)">
+                                    <i data-lucide="minus"></i>
+                                </button>
+                                <button class="btn-count plus" onclick="updateCount('locataire', 1)">
+                                    <i data-lucide="plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prestataires Card -->
+                    <div class="counter-card prestataire">
+                        <div class="card-glass"></div>
+                        <div class="card-content">
+                            <h3>Prestataires</h3>
+                            <div class="count-display">
+                                <span id="count-prestataire">0</span>
+                            </div>
+                            <div class="controls">
+                                <button class="btn-count minus" onclick="updateCount('prestataire', -1)">
+                                    <i data-lucide="minus"></i>
+                                </button>
+                                <button class="btn-count plus" onclick="updateCount('prestataire', 1)">
+                                    <i data-lucide="plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="today-summary">
+                    <div class="summary-glass"></div>
+                    <div class="summary-content">
+                        <h3>Résumé de la journée</h3>
+                        <div class="summary-stats">
+                            <div class="stat">
+                                <span class="label">Total Visites</span>
+                                <span class="value" id="total-visites">0</span>
+                            </div>
+                            <div class="stat">
+                                <span class="label">Dernière activité</span>
+                                <span class="value" id="last-activity">--:--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History Section -->
+            <section id="history-section" class="view-section">
+                <div class="history-controls">
+                    <div class="control-group">
+                        <label for="history-date">Choisir une date :</label>
+                        <input type="date" id="history-date" onchange="loadHistoryData()">
+                    </div>
+                    <div class="control-group">
+                        <button class="btn-primary" onclick="openConsolidationModal('2026-01')">
+                            <i data-lucide="plus-square"></i> Jan. 2026
+                        </button>
+                        <button class="btn-primary" onclick="openConsolidationModal('2026-02')">
+                            <i data-lucide="plus-square"></i> Fév. 2026
+                        </button>
+                    </div>
+                </div>
+
+                <div id="history-display" class="history-display-card hidden">
+                    <div class="card-glass"></div>
+                    <div class="card-content">
+                        <h3 id="history-display-date">Données du --/--/----</h3>
+                        <div class="edit-grid">
+                            <div class="edit-item">
+                                <span class="label">Locataires</span>
+                                <div class="value-input-group">
+                                    <span class="old-value" id="old-locataire">Ancien: 0</span>
+                                    <input type="number" id="edit-locataire" min="0">
+                                </div>
+                            </div>
+                            <div class="edit-item">
+                                <span class="label">Prestataires</span>
+                                <div class="value-input-group">
+                                    <span class="old-value" id="old-prestataire">Ancien: 0</span>
+                                    <input type="number" id="edit-prestataire" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <button class="btn-secondary" onclick="saveHistoryEdit()">Sauvegarder les
+                                modifications</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="no-history-data" class="placeholder-msg">
+                    Sélectionnez une date pour voir ou modifier l'historique.
+                </div>
+            </section>
+
+            <!-- Dashboard Section -->
+            <section id="dashboard-section" class="view-section">
+                <div class="dashboard-controls">
+                    <div class="filter-group">
+                        <button class="filter-btn active" onclick="setDashboardPeriod('monthly')">Mensuel</button>
+                        <button class="filter-btn" onclick="setDashboardPeriod('quarterly')">Trimestriel</button>
+                        <button class="filter-btn" onclick="setDashboardPeriod('semiannual')">Semestriel</button>
+                        <button class="filter-btn" onclick="setDashboardPeriod('9months')">9 Mois</button>
+                        <button class="filter-btn" onclick="setDashboardPeriod('annual')">Annuel</button>
+                        <button class="filter-btn global" onclick="setDashboardPeriod('global')">Vue Globale</button>
+                    </div>
+                </div>
+
+                <div class="dashboard-stats-row">
+                    <div class="stat-card">
+                        <div class="card-glass"></div>
+                        <div class="card-content">
+                            <span class="stat-label">Visites</span>
+                            <h4 id="dash-total-visites">0</h4>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="card-glass"></div>
+                        <div class="card-content">
+                            <span class="stat-label">Prestataires</span>
+                            <h4 id="dash-total-prestataires">0</h4>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="card-glass"></div>
+                        <div class="card-content">
+                            <span class="stat-label">Jours enregistrés</span>
+                            <h4 id="dash-registered-days">0</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-main-card">
+                    <div class="card-glass"></div>
+                    <div class="card-content">
+                        <div class="chart-header">
+                            <h3 id="chart-title">Analyse des visites</h3>
+                            <button class="btn-csv-export" onclick="exportToCSV()">
+                                <i data-lucide="download"></i> Exporter en CSV
+                            </button>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="mainChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-table-card">
+                    <div class="card-glass"></div>
+                    <div class="card-content">
+                        <table class="data-summary-table">
+                            <thead>
+                                <tr>
+                                    <th>Mois</th>
+                                    <th>Visites</th>
+                                    <th>Prestataires</th>
+                                    <th>Jours</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dashboard-summary-body">
+                                <!-- Data rows injected by JS -->
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-total-row">
+                                    <td>Total</td>
+                                    <td id="table-visites-total">0</td>
+                                    <td id="table-prestataires-total">0</td>
+                                    <td id="table-days-total">0</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Monthly Consolidation Modal -->
+    <div id="consolidation-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="consolidation-title">Saisie Totaux</h3>
+                <button class="btn-close" onclick="closeConsolidationModal()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="instruction" id="consolidation-instruction">Veuillez saisir les totaux cumulés pour le mois
+                    sélectionné.</p>
+                <div class="form-group">
+                    <label for="conso-total-locataires">Total Locataires</label>
+                    <input type="number" id="conso-total-locataires" min="0" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="conso-total-prestataires">Total Prestataires</label>
+                    <input type="number" id="conso-total-prestataires" min="0" placeholder="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="saveConsolidationTotals()">Enregistrer les totaux</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart.js via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>>

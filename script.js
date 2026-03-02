@@ -1,0 +1,539 @@
+let state = {
+    currentOffice: 'montreux',
+    currentDate: '', // Format YYYY-MM-DD
+    counts: {
+        locataire: 0,
+        prestataire: 0
+    },
+    historyData: {}, // Format: { 'office_id': { 'YYYY-MM-DD': { locataire: X, prestataire: Y } } }
+    theme: 'dark',
+    lastActivity: '--:--'
+};
+
+// DOM Elements
+const body = document.body;
+const themeToggle = document.getElementById('theme-toggle');
+const currentDateEl = document.getElementById('current-date');
+const officeSelect = document.getElementById('office-select');
+const countLocataireEl = document.getElementById('count-locataire');
+const countPrestataireEl = document.getElementById('count-prestataire');
+const totalVisitesEl = document.getElementById('total-visites');
+const lastActivityEl = document.getElementById('last-activity');
+
+// Navigation
+const navItems = document.querySelectorAll('.nav-item');
+const viewSections = document.querySelectorAll('.view-section');
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadState();
+    seedDataIfEmpty();
+    const now = new Date();
+    state.currentDate = now.toISOString().split('T')[0];
+    updateDateDisplay();
+    applyTheme();
+    loadCountsForSelectedDate(); // Ensure we have the right data for today
+    updateUI();
+});
+
+// State Persistence Helper
+function saveState() {
+    localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
+}
+
+function loadState() {
+    const saved = localStorage.getItem('trackVisitesState_v2');
+    if (saved) {
+        state = { ...state, ...JSON.parse(saved) };
+    }
+}
+
+// Office Selection
+officeSelect.addEventListener('change', (e) => {
+    state.currentOffice = e.target.value;
+    loadCountsForSelectedDate();
+    updateUI();
+    saveState();
+});
+
+// Load Counts for specific date and office
+function loadCountsForSelectedDate() {
+    const officeData = state.historyData[state.currentOffice] || {};
+    const dayData = officeData[state.currentDate] || { locataire: 0, prestataire: 0 };
+    state.counts = { ...dayData };
+}
+
+// Update Count (Main Counter)
+function updateCount(type, delta) {
+    if (state.counts[type] + delta < 0) return;
+
+    state.counts[type] += delta;
+
+    // Update daily history
+    if (!state.historyData[state.currentOffice]) state.historyData[state.currentOffice] = {};
+    state.historyData[state.currentOffice][state.currentDate] = { ...state.counts };
+
+    // Update last activity
+    const now = new Date();
+    const time = now.getHours().toString().padStart(2, '0') + ':' +
+        now.getMinutes().toString().padStart(2, '0');
+    state.lastActivity = time;
+
+    updateUI();
+    saveState();
+
+    // Simple micro-animation feedback
+    const display = document.getElementById(`count-${type}`);
+    display.style.transform = 'scale(1.1)';
+    setTimeout(() => { display.style.transform = 'scale(1)'; }, 100);
+}
+
+// UI Sync
+function updateUI() {
+    countLocataireEl.textContent = state.counts.locataire;
+    countPrestataireEl.textContent = state.counts.prestataire;
+    totalVisitesEl.textContent = state.counts.locataire + state.counts.prestataire;
+    lastActivityEl.textContent = state.lastActivity || '--:--';
+
+    officeSelect.value = state.currentOffice;
+}
+
+// Phase 3: History & Data Management
+function loadHistoryData() {
+    const historyDate = document.getElementById('history-date').value;
+    const historyDisplay = document.getElementById('history-display');
+    const noHistoryMsg = document.getElementById('no-history-data');
+
+    if (!historyDate) {
+        historyDisplay.classList.add('hidden');
+        noHistoryMsg.classList.remove('hidden');
+        return;
+    }
+
+    const officeData = state.historyData[state.currentOffice] || {};
+    const dayData = officeData[historyDate] || { locataire: 0, prestataire: 0 };
+
+    // Show display, hide placeholder
+    historyDisplay.classList.remove('hidden');
+    noHistoryMsg.classList.add('hidden');
+
+    // Update labels and inputs
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const dateFormatted = new Date(historyDate).toLocaleDateString('fr-FR', options);
+    document.getElementById('history-display-date').textContent = `Données du ${dateFormatted}`;
+
+    // Handle "Old Values" visual trace
+    document.getElementById('old-locataire').textContent = `Valeur actuelle: ${dayData.locataire}`;
+    document.getElementById('old-prestataire').textContent = `Valeur actuelle: ${dayData.prestataire}`;
+
+    document.getElementById('edit-locataire').value = dayData.locataire;
+    document.getElementById('edit-prestataire').value = dayData.prestataire;
+}
+
+function saveHistoryEdit() {
+    const historyDate = document.getElementById('history-date').value;
+    const newLocataire = parseInt(document.getElementById('edit-locataire').value) || 0;
+    const newPrestataire = parseInt(document.getElementById('edit-prestataire').value) || 0;
+
+    if (!state.historyData[state.currentOffice]) state.historyData[state.currentOffice] = {};
+
+    state.historyData[state.currentOffice][historyDate] = {
+        locataire: newLocataire,
+        prestataire: newPrestataire
+    };
+
+    // If we're editing today, update the main counter too
+    if (historyDate === state.currentDate) {
+        state.counts = { locataire: newLocataire, prestataire: newPrestataire };
+        updateUI();
+    }
+
+    saveState();
+    loadHistoryData(); // Refresh labels
+    alert('Modifications enregistrées avec succès !');
+}
+
+let consolidationMonth = '';
+
+function openConsolidationModal(month) {
+    consolidationMonth = month;
+    const [year, m] = month.split('-');
+    const monthNamesFr = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    const monthName = monthNamesFr[parseInt(m) - 1];
+
+    document.getElementById('consolidation-title').textContent = `Saisie Totaux ${monthName} ${year}`;
+    document.getElementById('consolidation-instruction').textContent = `Saisir les totaux consolidés pour le mois de ${monthName} ${year}.`;
+
+    // Try to load existing data if it exists for the consolidation date
+    const lastDay = new Date(year, parseInt(m), 0).getDate();
+    const dateStr = `${year}-${m.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+    const officeData = state.historyData[state.currentOffice] || {};
+    const existing = officeData[dateStr];
+
+    document.getElementById('conso-total-locataires').value = existing ? existing.locataire : '';
+    document.getElementById('conso-total-prestataires').value = existing ? existing.prestataire : '';
+
+    document.getElementById('consolidation-modal').classList.remove('hidden');
+}
+
+function closeConsolidationModal() {
+    document.getElementById('consolidation-modal').classList.add('hidden');
+}
+
+function saveConsolidationTotals() {
+    const loc = parseInt(document.getElementById('conso-total-locataires').value) || 0;
+    const pre = parseInt(document.getElementById('conso-total-prestataires').value) || 0;
+
+    const [year, month] = consolidationMonth.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    const dateStr = `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+
+    if (!state.historyData[state.currentOffice]) state.historyData[state.currentOffice] = {};
+    state.historyData[state.currentOffice][dateStr] = {
+        locataire: loc,
+        prestataire: pre,
+        isConsolidation: true
+    };
+
+    saveState();
+    closeConsolidationModal();
+    alert(`Les totaux ont été enregistrés avec succès.`);
+}
+
+// Phase 4: Analytics & Dashboards
+let currentChart = null;
+let dashboardPeriod = 'monthly';
+
+function initDashboard() {
+    renderDashboard();
+}
+
+function setDashboardPeriod(period) {
+    dashboardPeriod = period;
+
+    // Update Button UI
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        const periodText = {
+            'monthly': 'Mensuel',
+            'quarterly': 'Trimestriel',
+            'semiannual': 'Semestriel',
+            '9months': '9 Mois',
+            'annual': 'Annuel',
+            'global': 'Vue Globale'
+        }[period];
+        if (btn.textContent === periodText) btn.classList.add('active');
+    });
+
+    renderDashboard();
+}
+
+function getOfficeKey(name) {
+    if (name === 'St Exupéry') return 'st-exupery';
+    return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ /g, '-');
+}
+
+function renderDashboard() {
+    if (currentChart) currentChart.destroy();
+
+    const canvas = document.getElementById('mainChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const isDark = state.theme === 'dark';
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+    let labels = [];
+    let dataLocataire = [];
+    let dataPrestataire = [];
+    let tableRows = [];
+    let title = "Analyse des visites";
+    const officeData = state.historyData[state.currentOffice] || {};
+    const [currentYear, currentMonth, currentDay] = state.currentDate.split('-').map(Number);
+    const monthNamesFr = ['Janv.', 'Févr.', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+
+    // 1. Prepare Year Data (aggregated by month)
+    const yearData = {};
+    let totalRegisteredDays = 0;
+
+    Object.entries(officeData).forEach(([date, values]) => {
+        const [y, m, d] = date.split('-').map(Number);
+        if (y === currentYear) {
+            if (!yearData[m]) yearData[m] = { loc: 0, pre: 0, daysCount: 0, days: {} };
+            yearData[m].loc += values.locataire;
+            yearData[m].pre += values.prestataire;
+            yearData[m].daysCount++;
+            yearData[m].days[d] = values;
+            totalRegisteredDays++;
+        }
+    });
+
+    if (dashboardPeriod === 'global') {
+        labels = ['Montreux', 'La Chartrie', 'St Exupéry', 'Le Pré', 'La Suze'];
+        title = "Comparaison Globale des Bureaux";
+
+        labels.forEach(officeName => {
+            const officeKey = getOfficeKey(officeName);
+            const data = state.historyData[officeKey] || {};
+            let loc = 0, pre = 0;
+            Object.values(data).forEach(day => {
+                loc += day.locataire;
+                pre += day.prestataire;
+            });
+            dataLocataire.push(loc);
+            dataPrestataire.push(pre);
+        });
+    } else {
+        let startMonth, numMonths;
+
+        if (dashboardPeriod === 'monthly') {
+            title = `Analyse du mois (${monthNamesFr[currentMonth - 1]} ${currentYear})`;
+            startMonth = currentMonth;
+            numMonths = 1;
+
+            // For monthly, we show weeks on the chart
+            labels = ['Semaine 1', 'Semaine 2', 'Semaine 3', 'Semaine 4', 'S5 +'];
+            dataLocataire = [0, 0, 0, 0, 0];
+            dataPrestataire = [0, 0, 0, 0, 0];
+
+            const thisMonthData = yearData[currentMonth];
+            if (thisMonthData) {
+                Object.entries(thisMonthData.days).forEach(([day, vals]) => {
+                    const d = parseInt(day);
+                    const weekIdx = Math.min(4, Math.floor((d - 1) / 7));
+                    dataLocataire[weekIdx] += vals.locataire;
+                    dataPrestataire[weekIdx] += vals.prestataire;
+                });
+            }
+        } else {
+            if (dashboardPeriod === 'quarterly') {
+                const quarter = Math.floor((currentMonth - 1) / 3);
+                startMonth = quarter * 3 + 1;
+                numMonths = 3;
+                title = `Analyse Trimestrielle (T${quarter + 1} ${currentYear})`;
+            } else if (dashboardPeriod === 'semiannual') {
+                const half = Math.floor((currentMonth - 1) / 6);
+                startMonth = half * 6 + 1;
+                numMonths = 6;
+                title = `Analyse Semestrielle (S${half + 1} ${currentYear})`;
+            } else if (dashboardPeriod === '9months') {
+                startMonth = 1;
+                numMonths = 9;
+                title = `Analyse sur 9 Mois (${currentYear})`;
+            } else { // annual
+                startMonth = 1;
+                numMonths = 12;
+                title = `Analyse Annuelle (${currentYear})`;
+            }
+
+            for (let i = 0; i < numMonths; i++) {
+                const m = startMonth + i;
+                if (m > 12) break;
+                labels.push(monthNamesFr[m - 1]);
+                const mData = yearData[m] || { loc: 0, pre: 0, daysCount: 0 };
+                dataLocataire.push(mData.loc);
+                dataPrestataire.push(mData.pre);
+
+                if (mData.daysCount > 0 || m <= currentMonth) {
+                    tableRows.push({
+                        name: `${monthNamesFr[m - 1]} ${currentYear}`,
+                        visites: mData.loc,
+                        prestataires: mData.pre,
+                        jours: mData.daysCount
+                    });
+                }
+            }
+        }
+    }
+
+    // Populate KPI Cards
+    const totalVisites = dataLocataire.reduce((a, b) => a + b, 0);
+    const totalPre = dataPrestataire.reduce((a, b) => a + b, 0);
+
+    document.getElementById('dash-total-visites').textContent = totalVisites;
+    document.getElementById('dash-total-prestataires').textContent = totalPre;
+    document.getElementById('dash-registered-days').textContent = totalRegisteredDays;
+    document.getElementById('chart-title').textContent = title;
+
+    // Populate Table
+    const tableBody = document.getElementById('dashboard-summary-body');
+    tableBody.innerHTML = '';
+
+    tableRows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${row.name}</td>
+            <td>${row.visites}</td>
+            <td>${row.prestataires}</td>
+            <td>${row.jours}</td>
+        `;
+        tableBody.appendChild(tr);
+    });
+
+    document.getElementById('table-visites-total').textContent = totalVisites;
+    document.getElementById('table-prestataires-total').textContent = totalPre;
+    document.getElementById('table-days-total').textContent = totalRegisteredDays;
+
+    // Render Chart
+    currentChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Visites',
+                    data: dataLocataire,
+                    backgroundColor: '#1d4ed8', // Deep Blue
+                    borderRadius: 4,
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8
+                },
+                {
+                    label: 'Prestataires',
+                    data: dataPrestataire,
+                    backgroundColor: '#f59e0b', // Orange
+                    borderRadius: 4,
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: textColor,
+                        usePointStyle: true,
+                        pointStyle: 'rectRounded',
+                        font: { family: 'Inter', size: 12, weight: '500' }
+                    }
+                },
+                tooltip: {
+                    padding: 12,
+                    cornerRadius: 8,
+                    backgroundColor: isDark ? '#1e293b' : '#fff',
+                    titleColor: isDark ? '#fff' : '#1e293b',
+                    bodyColor: isDark ? '#94a3b8' : '#64748b',
+                    borderColor: isDark ? '#334155' : '#e2e8f0',
+                    borderWidth: 1
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: gridColor, drawBorder: false },
+                    ticks: {
+                        color: textColor,
+                        font: { family: 'Inter' },
+                        stepSize: 20
+                    }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: textColor, font: { family: 'Inter' } }
+                }
+            }
+        }
+    });
+}
+
+// Phase 5: Export & Final Polish
+function exportToCSV() {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Date,Bureau,Locataires,Prestataires\n";
+
+    // Flatten historyData
+    for (const office in state.historyData) {
+        for (const date in state.historyData[office]) {
+            const row = state.historyData[office][date];
+            csvContent += `${date},${office},${row.locataire},${row.prestataire}\n`;
+        }
+    }
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `trackvisites_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// Add navigation logic (re-implementing properly)
+navItems.forEach(item => {
+    item.addEventListener('click', () => {
+        const targetView = item.id.replace('nav-', '');
+
+        navItems.forEach(nav => nav.classList.remove('active'));
+        item.classList.add('active');
+
+        viewSections.forEach(section => {
+            section.classList.remove('active');
+            if (section.id === `${targetView}-section`) {
+                section.classList.add('active');
+            }
+        });
+
+        const titles = {
+            'counter': 'Compteurs d\'accueil',
+            'history': 'Historique des visites',
+            'dashboard': 'Tableau de bord analytique'
+        };
+        document.getElementById('page-title').textContent = titles[targetView];
+
+        if (targetView === 'dashboard') {
+            setTimeout(initDashboard, 100);
+        }
+    });
+});
+
+// Final theme toggle fix
+themeToggle.addEventListener('click', () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    applyTheme();
+    saveState();
+    // If dashboard is active, re-render to update chart colors
+    if (document.getElementById('dashboard-section').classList.contains('active')) {
+        renderDashboard();
+    }
+});
+
+function applyTheme() {
+    document.documentElement.setAttribute('data-theme', state.theme);
+    const themeText = themeToggle.querySelector('span');
+    themeText.textContent = state.theme === 'dark' ? 'Mode Clair' : 'Mode Sombre';
+}
+
+function updateDateDisplay() {
+    const now = new Date();
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const localeStr = now.toLocaleDateString('fr-FR', options);
+    currentDateEl.textContent = localeStr;
+
+    // Update Banner
+    const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long' });
+    const fullDate = now.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    document.getElementById('banner-day-name').textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    document.getElementById('banner-full-date').textContent = fullDate;
+}
+
+/**
+ * Seeds the application with mock data if history is empty
+ */
+function seedDataIfEmpty() {
+    if (Object.keys(state.historyData).length > 0) return;
+
+    const offices = ['montreux', 'la-chartrie', 'st-exupery', 'le-pre', 'la-suze'];
+    const now = new Date();
+
+    // users wants all data at 0, skipping mock data generation
+    offices.forEach(office => {
+        state.historyData[office] = {};
+    });
+
+    saveState();
+}

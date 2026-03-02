@@ -1,0 +1,49 @@
+# Document de Conception Produit : TrackVisites (Plateforme de Suivi des Visites)
+
+## 1. Vision et Objectifs
+L'objectif est de développer une plateforme web interactive **haut de gamme** permettant de comptabiliser, suivre et analyser les flux de visites au sein de différents bureaux d'accueil. L'application se doit d'être rapide, intuitive, et visuellement très soignée pour garantir une expérience utilisateur (UX) optimale, tant pour la saisie quotidienne que pour l'analyse des données.
+
+## 2. Utilisateurs Cibles
+* **Agents d'accueil :** Utilisent l'outil au quotidien comme un compteur interactif simple et rapide pour chaque personne se présentant au bureau.
+* **Responsables / Gestionnaires :** Utilisent l'outil pour analyser les statistiques passées, comparer l'activité des différents bureaux, identifier des tendances et exporter les rapports.
+
+## 3. Périmètre Fonctionnel
+
+### 3.1. Interface de Comptage (Le "Clicker" d'Accueil)
+* **Sélection du bureau :** Avant de comptabiliser les visites, l'utilisateur doit sélectionner le bureau dans lequel il se trouve (le choix peut être mémorisé pour la session suivante) :
+    * Montreux
+    * La Chartire
+    * St Exupéry
+    * Le Pré
+    * La Suze
+* **Typologie des visiteurs :** Le compteur est double et bien distinct visuellement pour gérer indépendamment :
+    * Les **Locataires**
+    * Les **Prestataires**
+* **Incrémentation et correction :** 
+    * Boutons principaux d'ajout **(+1)** mis en évidence avec une micro-animation de confirmation au clic.
+    * Boutons secondaires de soustraction **(-1)** facilement accessibles pour corriger immédiatement une erreur de saisie.
+
+### 3.2. Gestion et Édition de l'Historique
+* **Saisie d'amorçage (Janvier 2026) :** L'application devant être alimentée de manière régulière en février 2026, un module spécifique permettra de saisir manuellement les compteurs totaux (par jour ou consolé sur le mois) du mois de janvier 2026.
+* **Correction des jours passés :** 
+    * Interface de type "Calendrier" permettant de sélectionner une date passée pour éditer les valeurs précédemment saisies ou calculées.
+    * **Traçabilité visuelle :** Lors de la sauvegarde d'une modification sur une journée, l'interface doit obligatoirement afficher l'ancienne valeur confrontée à la nouvelle (ex: `Locataires le 15 fév : Ancienne valeur = 45 -> Nouvelle valeur = 50`), pour éviter les fautes de frappe indétectables.
+
+### 3.3. Tableaux de Bord (Dashboards) et Analytique
+* **Périodicités d'analyse :** Les vues d'analyse permettront de filtrer, regrouper et d'afficher les données sous forme de graphiques élégants sur plusieurs échelles de temps :
+    * Mensuel
+    * Trimestriel
+    * Semestriel
+    * Annuel
+* **Vue Consolidation Globale :** Un tableau de bord maître récapitulant les statistiques de **l'ensemble des bureaux simultanément**. Cette vue permettra de comparer facilement les flux entre les différents sites sur les échelles de temps choisies.
+* **Exportation Automatique :** Un bouton d'export dédié disponible sur chaque tableau de bord, permettant de récupérer toutes les données affichées au format **.CSV** (colonnes structurées par date, bureau, locataires, prestataires).
+
+### 3.4. Exigences UI / UX (Design Haut de Gamme)
+* **Mode Sombre / Mode Clair (Dark/Light Mode) :** Un interrupteur (toggle) intuitif, de préférence situé en haut à droite de l'écran, pour basculer facilement d'un mode à l'autre. Le thème doit être harmonieux pour réduire la fatigue visuelle.
+* **Esthétique Moderne :** Utilisation des standards actuels du web premium (fonds légèrement floutés "glassmorphism", ombres douces, couleurs harmonieuses et non agressives, typographie moderne et très lisible).
+* **Réactivité :** Les clics sur `+1`/`-1` ne doivent nécessiter aucun rechargement de page pour garantir une friction d'usage nulle lors des pics d'affluence.
+
+## 4. Prochaines Étapes Recommandées
+1. **Validation de ce document :** Vous pourrez m'indiquer si des ajustements sont à prévoir ou si certaines règles métiers ont été oubliées.
+2. **Phase de Conception (Maquettes) :** Je peux vous générer une démonstration fonctionnelle de l'interface principale de comptage.
+3. **Développement Web :** Création du projet (par exemple en React.js) en intégrant toutes ces fonctionnalités.
