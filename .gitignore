@@ -1,0 +1,6 @@
+.tmp/
+.env
+dist/
+node_modules/
+*.zip
+*.log

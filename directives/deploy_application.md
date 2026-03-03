@@ -11,6 +11,7 @@ Prepare and upload the TrackVisites application (static HTML/CSS/JS) to a produc
 ## Tools
 - `npm -y serve` (for local verification before deployment)
 - `execution/deploy_prep.ps1` (PowerShell script to clean and package files)
+- `execution/git_commit.ps1` (PowerShell script to automate git commits)
 - `Vercel CLI` or `GitHub CLI` for orchestration.
 
 ## Output

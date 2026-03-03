@@ -252,36 +252,60 @@ function renderDashboard() {
     const [currentYear, currentMonth, currentDay] = state.currentDate.split('-').map(Number);
     const monthNamesFr = ['Janv.', 'Févr.', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
 
-    // 1. Prepare Year Data (aggregated by month)
-    const yearData = {};
-    let totalRegisteredDays = 0;
+    // 1. Data Aggregation Helper with Consolidation Support
+    const getMonthTotals = (data, year, month) => {
+        let loc = 0, pre = 0, days = 0, hasConso = false;
+        Object.entries(data).forEach(([date, vals]) => {
+            const [y, m, d] = date.split('-').map(Number);
+            if (y === year && m === month) {
+                if (vals.isConsolidation) {
+                    loc = vals.locataire;
+                    pre = vals.prestataire;
+                    hasConso = true;
+                } else if (!hasConso) {
+                    loc += vals.locataire;
+                    pre += vals.prestataire;
+                    days++;
+                }
+            }
+        });
+        return { loc, pre, days, hasConso };
+    };
 
-    Object.entries(officeData).forEach(([date, values]) => {
-        const [y, m, d] = date.split('-').map(Number);
-        if (y === currentYear) {
-            if (!yearData[m]) yearData[m] = { loc: 0, pre: 0, daysCount: 0, days: {} };
-            yearData[m].loc += values.locataire;
-            yearData[m].pre += values.prestataire;
-            yearData[m].daysCount++;
-            yearData[m].days[d] = values;
-            totalRegisteredDays++;
-        }
-    });
+    let periodTotalVisites = 0;
+    let periodTotalPre = 0;
+    let periodTotalDays = 0;
 
     if (dashboardPeriod === 'global') {
         labels = ['Montreux', 'La Chartrie', 'St Exupéry', 'Le Pré', 'La Suze'];
-        title = "Comparaison Globale des Bureaux";
+        title = "Comparaison Globale des Bureaux (Année en cours)";
 
         labels.forEach(officeName => {
             const officeKey = getOfficeKey(officeName);
             const data = state.historyData[officeKey] || {};
-            let loc = 0, pre = 0;
-            Object.values(data).forEach(day => {
-                loc += day.locataire;
-                pre += day.prestataire;
+            let officeLoc = 0, officePre = 0, officeDays = 0;
+
+            // Aggregate all months of the current year for this office
+            for (let m = 1; m <= 12; m++) {
+                const totals = getMonthTotals(data, currentYear, m);
+                officeLoc += totals.loc;
+                officePre += totals.pre;
+                officeDays += totals.days;
+            }
+
+            dataLocataire.push(officeLoc);
+            dataPrestataire.push(officePre);
+
+            periodTotalVisites += officeLoc;
+            periodTotalPre += officePre;
+            periodTotalDays += officeDays;
+
+            tableRows.push({
+                name: officeName,
+                visites: officeLoc,
+                prestataires: officePre,
+                jours: officeDays
             });
-            dataLocataire.push(loc);
-            dataPrestataire.push(pre);
         });
     } else {
         let startMonth, numMonths;
@@ -291,20 +315,31 @@ function renderDashboard() {
             startMonth = currentMonth;
             numMonths = 1;
 
-            // For monthly, we show weeks on the chart
+            // Monthly breakdown for chart (weeks)
             labels = ['Semaine 1', 'Semaine 2', 'Semaine 3', 'Semaine 4', 'S5 +'];
             dataLocataire = [0, 0, 0, 0, 0];
             dataPrestataire = [0, 0, 0, 0, 0];
 
-            const thisMonthData = yearData[currentMonth];
-            if (thisMonthData) {
-                Object.entries(thisMonthData.days).forEach(([day, vals]) => {
-                    const d = parseInt(day);
+            const totals = getMonthTotals(officeData, currentYear, currentMonth);
+            periodTotalVisites = totals.loc;
+            periodTotalPre = totals.pre;
+            periodTotalDays = totals.days;
+
+            Object.entries(officeData).forEach(([date, vals]) => {
+                const [y, m, d] = date.split('-').map(Number);
+                if (y === currentYear && m === currentMonth && !vals.isConsolidation) {
                     const weekIdx = Math.min(4, Math.floor((d - 1) / 7));
                     dataLocataire[weekIdx] += vals.locataire;
                     dataPrestataire[weekIdx] += vals.prestataire;
-                });
-            }
+                }
+            });
+
+            tableRows.push({
+                name: `${monthNamesFr[currentMonth - 1]} ${currentYear}`,
+                visites: totals.loc,
+                prestataires: totals.pre,
+                jours: totals.days
+            });
         } else {
             if (dashboardPeriod === 'quarterly') {
                 const quarter = Math.floor((currentMonth - 1) / 3);
@@ -329,17 +364,22 @@ function renderDashboard() {
             for (let i = 0; i < numMonths; i++) {
                 const m = startMonth + i;
                 if (m > 12) break;
-                labels.push(monthNamesFr[m - 1]);
-                const mData = yearData[m] || { loc: 0, pre: 0, daysCount: 0 };
-                dataLocataire.push(mData.loc);
-                dataPrestataire.push(mData.pre);
 
-                if (mData.daysCount > 0 || m <= currentMonth) {
+                const totals = getMonthTotals(officeData, currentYear, m);
+                labels.push(monthNamesFr[m - 1]);
+                dataLocataire.push(totals.loc);
+                dataPrestataire.push(totals.pre);
+
+                periodTotalVisites += totals.loc;
+                periodTotalPre += totals.pre;
+                periodTotalDays += totals.days;
+
+                if (totals.days > 0 || totals.hasConso || m <= currentMonth) {
                     tableRows.push({
                         name: `${monthNamesFr[m - 1]} ${currentYear}`,
-                        visites: mData.loc,
-                        prestataires: mData.pre,
-                        jours: mData.daysCount
+                        visites: totals.loc,
+                        prestataires: totals.pre,
+                        jours: totals.days
                     });
                 }
             }
@@ -347,12 +387,9 @@ function renderDashboard() {
     }
 
     // Populate KPI Cards
-    const totalVisites = dataLocataire.reduce((a, b) => a + b, 0);
-    const totalPre = dataPrestataire.reduce((a, b) => a + b, 0);
-
-    document.getElementById('dash-total-visites').textContent = totalVisites;
-    document.getElementById('dash-total-prestataires').textContent = totalPre;
-    document.getElementById('dash-registered-days').textContent = totalRegisteredDays;
+    document.getElementById('dash-total-visites').textContent = periodTotalVisites;
+    document.getElementById('dash-total-prestataires').textContent = periodTotalPre;
+    document.getElementById('dash-registered-days').textContent = periodTotalDays;
     document.getElementById('chart-title').textContent = title;
 
     // Populate Table
@@ -370,9 +407,9 @@ function renderDashboard() {
         tableBody.appendChild(tr);
     });
 
-    document.getElementById('table-visites-total').textContent = totalVisites;
-    document.getElementById('table-prestataires-total').textContent = totalPre;
-    document.getElementById('table-days-total').textContent = totalRegisteredDays;
+    document.getElementById('table-visites-total').textContent = periodTotalVisites;
+    document.getElementById('table-prestataires-total').textContent = periodTotalPre;
+    document.getElementById('table-days-total').textContent = periodTotalDays;
 
     // Render Chart
     currentChart = new Chart(ctx, {
