@@ -143,6 +143,35 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
     }
 }
 
+async function forceSyncLocalToSupabase() {
+    const btn = document.getElementById('force-sync-db');
+    if (!btn) return;
+    
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="spin" data-lucide="loader-2"></i> Synchronisation...';
+    if (window.lucide) window.lucide.createIcons();
+
+    let total = 0;
+    try {
+        for (const office in state.historyData) {
+            for (const date in state.historyData[office]) {
+                const data = state.historyData[office][date];
+                await syncVisitToSupabase(office, date, data.locataire, data.prestataire, data.isConsolidation || false);
+                total++;
+            }
+        }
+        alert(`${total} entrées ont été synchronisées avec succès ! Vous pouvez maintenant fermer cet onglet ou utiliser un autre appareil.`);
+        localStorage.setItem('migration_to_supabase_done', 'true');
+    } catch (err) {
+        alert("Erreur lors de la synchronisation : " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+        if (window.lucide) window.lucide.createIcons();
+    }
+}
+
 async function migrateLocalDataToSupabase() {
     const saved = localStorage.getItem('trackVisitesState_v2');
     if (!saved) return;
@@ -660,6 +689,11 @@ function attachNavigationListeners() {
             renderDashboard();
         }
     });
+
+    const forceSyncBtn = document.getElementById('force-sync-db');
+    if (forceSyncBtn) {
+        forceSyncBtn.addEventListener('click', forceSyncLocalToSupabase);
+    }
 }
 
 function applyTheme() {

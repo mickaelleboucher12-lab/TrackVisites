@@ -158,6 +158,12 @@
                         <label for="history-date">Choisir une date :</label>
                         <input type="date" id="history-date" onchange="loadHistoryData()">
                     </div>
+                    <div class="action-buttons">
+                        <button id="force-sync-db" class="btn-sync" title="Envoyer les données locales vers le cloud">
+                            <i data-lucide="cloud-upload"></i>
+                            Forcer la synchronisation vers le Cloud
+                        </button>
+                    </div>
                     <div class="control-group">
                         <button class="btn-primary" onclick="openConsolidationModal('2026-01')">
                             <i data-lucide="plus-square"></i> Jan. 2026
