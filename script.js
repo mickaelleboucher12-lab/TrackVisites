@@ -25,18 +25,8 @@ const navItems = document.querySelectorAll('.nav-item');
 const viewSections = document.querySelectorAll('.view-section');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. Initialiser l'UI immédiatement pour que ce ne soit pas "bloqué"
-    const now = new Date();
-    state.currentDate = now.toISOString().split('T')[0];
-    updateDateDisplay();
-    applyTheme();
-    updateUI();
-    attachNavigationListeners(); // On attache les menus tout de suite
-
-    // 2. Charger les données en arrière-plan
-    initAppData();
-});
+// Initialisation Supabase (si config.js est rempli)
+const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL.indexOf('supabase.co') !== -1 && SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
 
 async function initAppData() {
     try {
@@ -54,8 +44,19 @@ async function initAppData() {
     }
 }
 
-// Initialisation Supabase (si config.js est rempli)
-const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL.indexOf('supabase.co') !== -1 && SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialiser l'UI immédiatement pour que ce ne soit pas "bloqué"
+    const now = new Date();
+    state.currentDate = now.toISOString().split('T')[0];
+    updateDateDisplay();
+    applyTheme();
+    updateUI();
+    attachNavigationListeners(); // On attache les menus tout de suite
+
+    // 2. Charger les données en arrière-plan
+    initAppData();
+});
 
 function subscribeToChanges() {
     if (!hasSupabase) return;
