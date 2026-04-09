@@ -25,30 +25,56 @@ const navItems = document.querySelectorAll('.nav-item');
 const viewSections = document.querySelectorAll('.view-section');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        await loadState();
-        await seedDataIfEmpty();
-    } catch (err) {
-        console.error("Échec de l'initialisation des données:", err);
-    }
-    
-    // Assurer que la date et l'UI s'affichent même en cas d'erreur DB
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialiser l'UI immédiatement pour que ce ne soit pas "bloqué"
     const now = new Date();
     state.currentDate = now.toISOString().split('T')[0];
     updateDateDisplay();
     applyTheme();
-    loadCountsForSelectedDate(); 
     updateUI();
-    
-    // Lancer la migration automatique si des données locales existent
-    if (hasSupabase) {
-        migrateLocalDataToSupabase();
-    }
+    attachNavigationListeners(); // On attache les menus tout de suite
+
+    // 2. Charger les données en arrière-plan
+    initAppData();
 });
 
+async function initAppData() {
+    try {
+        await loadState();
+        await seedDataIfEmpty();
+        loadCountsForSelectedDate(); 
+        updateUI();
+        
+        if (hasSupabase) {
+            await migrateLocalDataToSupabase();
+            subscribeToChanges(); // Activer le temps réel
+        }
+    } catch (err) {
+        console.error("Échec du chargement des données:", err);
+    }
+}
+
 // Initialisation Supabase (si config.js est rempli)
-const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL !== 'https://VOTRE_PROJET.supabase.co';
+const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL.indexOf('supabase.co') !== -1 && SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+
+function subscribeToChanges() {
+    if (!hasSupabase) return;
+    
+    supabase
+        .channel('public:visits')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, async (payload) => {
+            console.log('Changement détecté en base !', payload);
+            await fetchHistoryFromSupabase();
+            loadCountsForSelectedDate();
+            updateUI();
+            
+            // Si le dashboard est ouvert, on le rafraîchit aussi
+            if (document.getElementById('dashboard-section').classList.contains('active')) {
+                renderDashboard();
+            }
+        })
+        .subscribe();
+}
 
 // State Persistence Helper
 async function saveState(syncDB = true) {
@@ -597,44 +623,44 @@ function exportToCSV() {
     document.body.removeChild(link);
 }
 
-// Add navigation logic (re-implementing properly)
-navItems.forEach(item => {
-    item.addEventListener('click', () => {
-        const targetView = item.id.replace('nav-', '');
+function attachNavigationListeners() {
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const targetView = item.id.replace('nav-', '');
 
-        navItems.forEach(nav => nav.classList.remove('active'));
-        item.classList.add('active');
+            navItems.forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
 
-        viewSections.forEach(section => {
-            section.classList.remove('active');
-            if (section.id === `${targetView}-section`) {
-                section.classList.add('active');
+            viewSections.forEach(section => {
+                section.classList.remove('active');
+                if (section.id === `${targetView}-section`) {
+                    section.classList.add('active');
+                }
+            });
+
+            const titles = {
+                'counter': 'Compteurs d\'accueil',
+                'history': 'Historique des visites',
+                'dashboard': 'Tableau de bord analytique'
+            };
+            document.getElementById('page-title').textContent = titles[targetView];
+
+            if (targetView === 'dashboard') {
+                setTimeout(initDashboard, 100);
             }
         });
+    });
 
-        const titles = {
-            'counter': 'Compteurs d\'accueil',
-            'history': 'Historique des visites',
-            'dashboard': 'Tableau de bord analytique'
-        };
-        document.getElementById('page-title').textContent = titles[targetView];
-
-        if (targetView === 'dashboard') {
-            setTimeout(initDashboard, 100);
+    // Theme toggle
+    themeToggle.addEventListener('click', async () => {
+        state.theme = state.theme === 'dark' ? 'light' : 'dark';
+        applyTheme();
+        await saveState(false);
+        if (document.getElementById('dashboard-section').classList.contains('active')) {
+            renderDashboard();
         }
     });
-});
-
-// Final theme toggle fix
-themeToggle.addEventListener('click', async () => {
-    state.theme = state.theme === 'dark' ? 'light' : 'dark';
-    applyTheme();
-    await saveState(false);
-    // If dashboard is active, re-render to update chart colors
-    if (document.getElementById('dashboard-section').classList.contains('active')) {
-        renderDashboard();
-    }
-});
+}
 
 function applyTheme() {
     document.documentElement.setAttribute('data-theme', state.theme);
