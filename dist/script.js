@@ -46,15 +46,23 @@ async function initAppData() {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Initialiser l'UI immédiatement pour que ce ne soit pas "bloqué"
-    const now = new Date();
-    state.currentDate = now.toISOString().split('T')[0];
-    updateDateDisplay();
-    applyTheme();
-    updateUI();
-    attachNavigationListeners(); // On attache les menus tout de suite
+    console.log("DOM chargé, initialisation...");
+    
+    // 1. Initialiser la date et le thème
+    try {
+        const now = new Date();
+        state.currentDate = now.toISOString().split('T')[0];
+        updateDateDisplay();
+        applyTheme();
+    } catch (e) { console.error("Erreur date/thème:", e); }
 
-    // 2. Charger les données en arrière-plan
+    // 2. Initialiser l'UI
+    try {
+        updateUI();
+        attachNavigationListeners();
+    } catch (e) { console.error("Erreur UI/Navigation:", e); }
+
+    // 3. Charger les données en arrière-plan
     initAppData();
 });
 
@@ -707,14 +715,19 @@ function updateDateDisplay() {
     const now = new Date();
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     const localeStr = now.toLocaleDateString('fr-FR', options);
-    currentDateEl.textContent = localeStr;
+    
+    const currentDateEl = document.getElementById('current-date');
+    if (currentDateEl) currentDateEl.textContent = localeStr;
 
     // Update Banner
     const dayName = now.toLocaleDateString('fr-FR', { weekday: 'long' });
     const fullDate = now.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    document.getElementById('banner-day-name').textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1);
-    document.getElementById('banner-full-date').textContent = fullDate;
+    const bannerDay = document.getElementById('banner-day-name');
+    const bannerFull = document.getElementById('banner-full-date');
+    
+    if (bannerDay) bannerDay.textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    if (bannerFull) bannerFull.textContent = fullDate;
 }
 
 /**
