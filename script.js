@@ -25,35 +25,93 @@ const navItems = document.querySelectorAll('.nav-item');
 const viewSections = document.querySelectorAll('.view-section');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    loadState();
-    seedDataIfEmpty();
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadState();
+    await seedDataIfEmpty();
     const now = new Date();
     state.currentDate = now.toISOString().split('T')[0];
     updateDateDisplay();
     applyTheme();
-    loadCountsForSelectedDate(); // Ensure we have the right data for today
+    loadCountsForSelectedDate(); 
     updateUI();
 });
 
+// Initialisation Supabase (si config.js est rempli)
+const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL !== 'https://VOTRE_PROJET.supabase.co';
+
 // State Persistence Helper
-function saveState() {
+async function saveState(syncDB = true) {
     localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
+    
+    if (syncDB && hasSupabase) {
+        await syncVisitToSupabase(state.currentOffice, state.currentDate, state.counts.locataire, state.counts.prestataire);
+    }
 }
 
-function loadState() {
+async function loadState() {
+    // 1. Charger les préférences locales (thème, office actuel)
     const saved = localStorage.getItem('trackVisitesState_v2');
     if (saved) {
         state = { ...state, ...JSON.parse(saved) };
     }
+
+    // 2. Charger les données historiques depuis Supabase
+    if (hasSupabase) {
+        await fetchHistoryFromSupabase();
+    }
+}
+
+async function fetchHistoryFromSupabase() {
+    try {
+        const { data, error } = await supabase
+            .from('visits')
+            .select('*');
+
+        if (error) throw error;
+
+        // Reconstruire historyData à partir des lignes de la DB
+        const newHistory = {};
+        data.forEach(row => {
+            if (!newHistory[row.office]) newHistory[row.office] = {};
+            newHistory[row.office][row.visit_date] = {
+                locataire: row.locataire_count,
+                prestataire: row.prestataire_count,
+                isConsolidation: row.is_consolidation
+            };
+        });
+
+        state.historyData = newHistory;
+    } catch (err) {
+        console.error("Erreur lors du chargement Supabase:", err.message);
+    }
+}
+
+async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
+    if (!hasSupabase) return;
+
+    try {
+        const { error } = await supabase
+            .from('visits')
+            .upsert({
+                office: office,
+                visit_date: date,
+                locataire_count: loc,
+                prestataire_count: pre,
+                is_consolidation: isConso
+            }, { onConflict: 'office,visit_date,is_consolidation' });
+
+        if (error) throw error;
+    } catch (err) {
+        console.error("Erreur lors de la synchro Supabase:", err.message);
+    }
 }
 
 // Office Selection
-officeSelect.addEventListener('change', (e) => {
+officeSelect.addEventListener('change', async (e) => {
     state.currentOffice = e.target.value;
     loadCountsForSelectedDate();
     updateUI();
-    saveState();
+    await saveState();
 });
 
 // Load Counts for specific date and office
@@ -64,7 +122,7 @@ function loadCountsForSelectedDate() {
 }
 
 // Update Count (Main Counter)
-function updateCount(type, delta) {
+async function updateCount(type, delta) {
     if (state.counts[type] + delta < 0) return;
 
     state.counts[type] += delta;
@@ -80,7 +138,7 @@ function updateCount(type, delta) {
     state.lastActivity = time;
 
     updateUI();
-    saveState();
+    await saveState(true);
 
     // Simple micro-animation feedback
     const display = document.getElementById(`count-${type}`);
@@ -130,7 +188,7 @@ function loadHistoryData() {
     document.getElementById('edit-prestataire').value = dayData.prestataire;
 }
 
-function saveHistoryEdit() {
+async function saveHistoryEdit() {
     const historyDate = document.getElementById('history-date').value;
     const newLocataire = parseInt(document.getElementById('edit-locataire').value) || 0;
     const newPrestataire = parseInt(document.getElementById('edit-prestataire').value) || 0;
@@ -147,8 +205,8 @@ function saveHistoryEdit() {
         state.counts = { locataire: newLocataire, prestataire: newPrestataire };
         updateUI();
     }
-
-    saveState();
+    await syncVisitToSupabase(state.currentOffice, historyDate, newLocataire, newPrestataire);
+    await saveState(false);
     loadHistoryData(); // Refresh labels
     alert('Modifications enregistrées avec succès !');
 }
@@ -180,7 +238,7 @@ function closeConsolidationModal() {
     document.getElementById('consolidation-modal').classList.add('hidden');
 }
 
-function saveConsolidationTotals() {
+async function saveConsolidationTotals() {
     const loc = parseInt(document.getElementById('conso-total-locataires').value) || 0;
     const pre = parseInt(document.getElementById('conso-total-prestataires').value) || 0;
 
@@ -194,8 +252,8 @@ function saveConsolidationTotals() {
         prestataire: pre,
         isConsolidation: true
     };
-
-    saveState();
+    await syncVisitToSupabase(state.currentOffice, dateStr, loc, pre, true);
+    await saveState(false);
     closeConsolidationModal();
     alert(`Les totaux ont été enregistrés avec succès.`);
 }
@@ -528,10 +586,10 @@ navItems.forEach(item => {
 });
 
 // Final theme toggle fix
-themeToggle.addEventListener('click', () => {
+themeToggle.addEventListener('click', async () => {
     state.theme = state.theme === 'dark' ? 'light' : 'dark';
     applyTheme();
-    saveState();
+    await saveState(false);
     // If dashboard is active, re-render to update chart colors
     if (document.getElementById('dashboard-section').classList.contains('active')) {
         renderDashboard();
@@ -561,7 +619,7 @@ function updateDateDisplay() {
 /**
  * Seeds the application with mock data if history is empty
  */
-function seedDataIfEmpty() {
+async function seedDataIfEmpty() {
     if (Object.keys(state.historyData).length > 0) return;
 
     const offices = ['montreux', 'la-chartrie', 'st-exupery', 'le-pre', 'la-suze'];
@@ -572,5 +630,5 @@ function seedDataIfEmpty() {
         state.historyData[office] = {};
     });
 
-    saveState();
+    await saveState(false);
 }

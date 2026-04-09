@@ -25,35 +25,93 @@ const navItems = document.querySelectorAll('.nav-item');
 const viewSections = document.querySelectorAll('.view-section');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    loadState();
-    seedDataIfEmpty();
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadState();
+    await seedDataIfEmpty();
     const now = new Date();
     state.currentDate = now.toISOString().split('T')[0];
     updateDateDisplay();
     applyTheme();
-    loadCountsForSelectedDate(); // Ensure we have the right data for today
+    loadCountsForSelectedDate(); 
     updateUI();
 });
 
+// Initialisation Supabase (si config.js est rempli)
+const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL !== 'https://VOTRE_PROJET.supabase.co';
+
 // State Persistence Helper
-function saveState() {
+async function saveState(syncDB = true) {
     localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
+    
+    if (syncDB && hasSupabase) {
+        await syncVisitToSupabase(state.currentOffice, state.currentDate, state.counts.locataire, state.counts.prestataire);
+    }
 }
 
-function loadState() {
+async function loadState() {
+    // 1. Charger les préférences locales (thème, office actuel)
     const saved = localStorage.getItem('trackVisitesState_v2');
     if (saved) {
         state = { ...state, ...JSON.parse(saved) };
     }
+
+    // 2. Charger les données historiques depuis Supabase
+    if (hasSupabase) {
+        await fetchHistoryFromSupabase();
+    }
+}
+
+async function fetchHistoryFromSupabase() {
+    try {
+        const { data, error } = await supabase
+            .from('visits')
+            .select('*');
+
+        if (error) throw error;
+
+        // Reconstruire historyData à partir des lignes de la DB
+        const newHistory = {};
+        data.forEach(row => {
+            if (!newHistory[row.office]) newHistory[row.office] = {};
+            newHistory[row.office][row.visit_date] = {
+                locataire: row.locataire_count,
+                prestataire: row.prestataire_count,
+                isConsolidation: row.is_consolidation
+            };
+        });
+
+        state.historyData = newHistory;
+    } catch (err) {
+        console.error("Erreur lors du chargement Supabase:", err.message);
+    }
+}
+
+async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
+    if (!hasSupabase) return;
+
+    try {
+        const { error } = await supabase
+            .from('visits')
+            .upsert({
+                office: office,
+                visit_date: date,
+                locataire_count: loc,
+                prestataire_count: pre,
+                is_consolidation: isConso
+            }, { onConflict: 'office,visit_date,is_consolidation' });
+
+        if (error) throw error;
+    } catch (err) {
+        console.error("Erreur lors de la synchro Supabase:", err.message);
+    }
 }
 
 // Office Selection
-officeSelect.addEventListener('change', (e) => {
+officeSelect.addEventListener('change', async (e) => {
     state.currentOffice = e.target.value;
     loadCountsForSelectedDate();
     updateUI();
-    saveState();
+    await saveState();
 });
 
 // Load Counts for specific date and office
@@ -64,7 +122,7 @@ function loadCountsForSelectedDate() {
 }
 
 // Update Count (Main Counter)
-function updateCount(type, delta) {
+async function updateCount(type, delta) {
     if (state.counts[type] + delta < 0) return;
 
     state.counts[type] += delta;
@@ -80,7 +138,7 @@ function updateCount(type, delta) {
     state.lastActivity = time;
 
     updateUI();
-    saveState();
+    await saveState(true);
 
     // Simple micro-animation feedback
     const display = document.getElementById(`count-${type}`);
@@ -130,7 +188,7 @@ function loadHistoryData() {
     document.getElementById('edit-prestataire').value = dayData.prestataire;
 }
 
-function saveHistoryEdit() {
+async function saveHistoryEdit() {
     const historyDate = document.getElementById('history-date').value;
     const newLocataire = parseInt(document.getElementById('edit-locataire').value) || 0;
     const newPrestataire = parseInt(document.getElementById('edit-prestataire').value) || 0;
@@ -147,8 +205,8 @@ function saveHistoryEdit() {
         state.counts = { locataire: newLocataire, prestataire: newPrestataire };
         updateUI();
     }
-
-    saveState();
+    await syncVisitToSupabase(state.currentOffice, historyDate, newLocataire, newPrestataire);
+    await saveState(false);
     loadHistoryData(); // Refresh labels
     alert('Modifications enregistrées avec succès !');
 }
@@ -180,7 +238,7 @@ function closeConsolidationModal() {
     document.getElementById('consolidation-modal').classList.add('hidden');
 }
 
-function saveConsolidationTotals() {
+async function saveConsolidationTotals() {
     const loc = parseInt(document.getElementById('conso-total-locataires').value) || 0;
     const pre = parseInt(document.getElementById('conso-total-prestataires').value) || 0;
 
@@ -194,8 +252,8 @@ function saveConsolidationTotals() {
         prestataire: pre,
         isConsolidation: true
     };
-
-    saveState();
+    await syncVisitToSupabase(state.currentOffice, dateStr, loc, pre, true);
+    await saveState(false);
     closeConsolidationModal();
     alert(`Les totaux ont été enregistrés avec succès.`);
 }
@@ -252,36 +310,60 @@ function renderDashboard() {
     const [currentYear, currentMonth, currentDay] = state.currentDate.split('-').map(Number);
     const monthNamesFr = ['Janv.', 'Févr.', 'Mars', 'Avril', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
 
-    // 1. Prepare Year Data (aggregated by month)
-    const yearData = {};
-    let totalRegisteredDays = 0;
+    // 1. Data Aggregation Helper with Consolidation Support
+    const getMonthTotals = (data, year, month) => {
+        let loc = 0, pre = 0, days = 0, hasConso = false;
+        Object.entries(data).forEach(([date, vals]) => {
+            const [y, m, d] = date.split('-').map(Number);
+            if (y === year && m === month) {
+                if (vals.isConsolidation) {
+                    loc = vals.locataire;
+                    pre = vals.prestataire;
+                    hasConso = true;
+                } else if (!hasConso) {
+                    loc += vals.locataire;
+                    pre += vals.prestataire;
+                    days++;
+                }
+            }
+        });
+        return { loc, pre, days, hasConso };
+    };
 
-    Object.entries(officeData).forEach(([date, values]) => {
-        const [y, m, d] = date.split('-').map(Number);
-        if (y === currentYear) {
-            if (!yearData[m]) yearData[m] = { loc: 0, pre: 0, daysCount: 0, days: {} };
-            yearData[m].loc += values.locataire;
-            yearData[m].pre += values.prestataire;
-            yearData[m].daysCount++;
-            yearData[m].days[d] = values;
-            totalRegisteredDays++;
-        }
-    });
+    let periodTotalVisites = 0;
+    let periodTotalPre = 0;
+    let periodTotalDays = 0;
 
     if (dashboardPeriod === 'global') {
         labels = ['Montreux', 'La Chartrie', 'St Exupéry', 'Le Pré', 'La Suze'];
-        title = "Comparaison Globale des Bureaux";
+        title = "Comparaison Globale des Bureaux (Année en cours)";
 
         labels.forEach(officeName => {
             const officeKey = getOfficeKey(officeName);
             const data = state.historyData[officeKey] || {};
-            let loc = 0, pre = 0;
-            Object.values(data).forEach(day => {
-                loc += day.locataire;
-                pre += day.prestataire;
+            let officeLoc = 0, officePre = 0, officeDays = 0;
+
+            // Aggregate all months of the current year for this office
+            for (let m = 1; m <= 12; m++) {
+                const totals = getMonthTotals(data, currentYear, m);
+                officeLoc += totals.loc;
+                officePre += totals.pre;
+                officeDays += totals.days;
+            }
+
+            dataLocataire.push(officeLoc);
+            dataPrestataire.push(officePre);
+
+            periodTotalVisites += officeLoc;
+            periodTotalPre += officePre;
+            periodTotalDays += officeDays;
+
+            tableRows.push({
+                name: officeName,
+                visites: officeLoc,
+                prestataires: officePre,
+                jours: officeDays
             });
-            dataLocataire.push(loc);
-            dataPrestataire.push(pre);
         });
     } else {
         let startMonth, numMonths;
@@ -291,20 +373,31 @@ function renderDashboard() {
             startMonth = currentMonth;
             numMonths = 1;
 
-            // For monthly, we show weeks on the chart
+            // Monthly breakdown for chart (weeks)
             labels = ['Semaine 1', 'Semaine 2', 'Semaine 3', 'Semaine 4', 'S5 +'];
             dataLocataire = [0, 0, 0, 0, 0];
             dataPrestataire = [0, 0, 0, 0, 0];
 
-            const thisMonthData = yearData[currentMonth];
-            if (thisMonthData) {
-                Object.entries(thisMonthData.days).forEach(([day, vals]) => {
-                    const d = parseInt(day);
+            const totals = getMonthTotals(officeData, currentYear, currentMonth);
+            periodTotalVisites = totals.loc;
+            periodTotalPre = totals.pre;
+            periodTotalDays = totals.days;
+
+            Object.entries(officeData).forEach(([date, vals]) => {
+                const [y, m, d] = date.split('-').map(Number);
+                if (y === currentYear && m === currentMonth && !vals.isConsolidation) {
                     const weekIdx = Math.min(4, Math.floor((d - 1) / 7));
                     dataLocataire[weekIdx] += vals.locataire;
                     dataPrestataire[weekIdx] += vals.prestataire;
-                });
-            }
+                }
+            });
+
+            tableRows.push({
+                name: `${monthNamesFr[currentMonth - 1]} ${currentYear}`,
+                visites: totals.loc,
+                prestataires: totals.pre,
+                jours: totals.days
+            });
         } else {
             if (dashboardPeriod === 'quarterly') {
                 const quarter = Math.floor((currentMonth - 1) / 3);
@@ -329,17 +422,22 @@ function renderDashboard() {
             for (let i = 0; i < numMonths; i++) {
                 const m = startMonth + i;
                 if (m > 12) break;
-                labels.push(monthNamesFr[m - 1]);
-                const mData = yearData[m] || { loc: 0, pre: 0, daysCount: 0 };
-                dataLocataire.push(mData.loc);
-                dataPrestataire.push(mData.pre);
 
-                if (mData.daysCount > 0 || m <= currentMonth) {
+                const totals = getMonthTotals(officeData, currentYear, m);
+                labels.push(monthNamesFr[m - 1]);
+                dataLocataire.push(totals.loc);
+                dataPrestataire.push(totals.pre);
+
+                periodTotalVisites += totals.loc;
+                periodTotalPre += totals.pre;
+                periodTotalDays += totals.days;
+
+                if (totals.days > 0 || totals.hasConso || m <= currentMonth) {
                     tableRows.push({
                         name: `${monthNamesFr[m - 1]} ${currentYear}`,
-                        visites: mData.loc,
-                        prestataires: mData.pre,
-                        jours: mData.daysCount
+                        visites: totals.loc,
+                        prestataires: totals.pre,
+                        jours: totals.days
                     });
                 }
             }
@@ -347,12 +445,9 @@ function renderDashboard() {
     }
 
     // Populate KPI Cards
-    const totalVisites = dataLocataire.reduce((a, b) => a + b, 0);
-    const totalPre = dataPrestataire.reduce((a, b) => a + b, 0);
-
-    document.getElementById('dash-total-visites').textContent = totalVisites;
-    document.getElementById('dash-total-prestataires').textContent = totalPre;
-    document.getElementById('dash-registered-days').textContent = totalRegisteredDays;
+    document.getElementById('dash-total-visites').textContent = periodTotalVisites;
+    document.getElementById('dash-total-prestataires').textContent = periodTotalPre;
+    document.getElementById('dash-registered-days').textContent = periodTotalDays;
     document.getElementById('chart-title').textContent = title;
 
     // Populate Table
@@ -370,9 +465,9 @@ function renderDashboard() {
         tableBody.appendChild(tr);
     });
 
-    document.getElementById('table-visites-total').textContent = totalVisites;
-    document.getElementById('table-prestataires-total').textContent = totalPre;
-    document.getElementById('table-days-total').textContent = totalRegisteredDays;
+    document.getElementById('table-visites-total').textContent = periodTotalVisites;
+    document.getElementById('table-prestataires-total').textContent = periodTotalPre;
+    document.getElementById('table-days-total').textContent = periodTotalDays;
 
     // Render Chart
     currentChart = new Chart(ctx, {
@@ -491,10 +586,10 @@ navItems.forEach(item => {
 });
 
 // Final theme toggle fix
-themeToggle.addEventListener('click', () => {
+themeToggle.addEventListener('click', async () => {
     state.theme = state.theme === 'dark' ? 'light' : 'dark';
     applyTheme();
-    saveState();
+    await saveState(false);
     // If dashboard is active, re-render to update chart colors
     if (document.getElementById('dashboard-section').classList.contains('active')) {
         renderDashboard();
@@ -524,7 +619,7 @@ function updateDateDisplay() {
 /**
  * Seeds the application with mock data if history is empty
  */
-function seedDataIfEmpty() {
+async function seedDataIfEmpty() {
     if (Object.keys(state.historyData).length > 0) return;
 
     const offices = ['montreux', 'la-chartrie', 'st-exupery', 'le-pre', 'la-suze'];
@@ -535,5 +630,5 @@ function seedDataIfEmpty() {
         state.historyData[office] = {};
     });
 
-    saveState();
+    await saveState(false);
 }

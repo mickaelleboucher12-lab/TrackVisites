@@ -20,6 +20,7 @@ def prepare_dist():
         "index.html",
         "script.js",
         "styles.css",
+        "config.js",
         "Exemple idesign interface.png"
     ]
     
