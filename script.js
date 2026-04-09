@@ -26,8 +26,14 @@ const viewSections = document.querySelectorAll('.view-section');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadState();
-    await seedDataIfEmpty();
+    try {
+        await loadState();
+        await seedDataIfEmpty();
+    } catch (err) {
+        console.error("Échec de l'initialisation des données:", err);
+    }
+    
+    // Assurer que la date et l'UI s'affichent même en cas d'erreur DB
     const now = new Date();
     state.currentDate = now.toISOString().split('T')[0];
     updateDateDisplay();
