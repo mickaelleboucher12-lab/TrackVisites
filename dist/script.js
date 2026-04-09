@@ -39,6 +39,17 @@ async function initAppData() {
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOM chargé, initialisation...");
     
+    // Rendre les fonctions globales accessibles pour les onclick du HTML
+    window.updateCount = updateCount;
+    window.setDashboardPeriod = setDashboardPeriod;
+    window.exportToCSV = exportToCSV;
+    window.loadHistoryData = loadHistoryData;
+    window.openConsolidationModal = openConsolidationModal;
+    window.closeConsolidationModal = closeConsolidationModal;
+    window.saveConsolidationTotals = saveConsolidationTotals;
+    window.saveHistoryEdit = saveHistoryEdit;
+    window.forceSyncLocalToSupabase = forceSyncLocalToSupabase;
+    
     // Initialize Elements
     themeToggle = document.getElementById('theme-toggle');
     currentDateEl = document.getElementById('current-date');
@@ -65,7 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { console.error("Erreur UI/Navigation:", e); }
 
     // 3. Charger les données en arrière-plan
-    initAppData();
+    initAppData().then(() => {
+        // Rafraîchissement automatique si on est sur le dashboard
+        if (document.getElementById('dashboard-section').classList.contains('active')) {
+            renderDashboard();
+        }
+    });
 });
 
 function subscribeToChanges() {
