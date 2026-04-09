@@ -97,10 +97,20 @@ async function saveState(syncDB = true) {
 }
 
 async function loadState() {
-    // 1. Charger les préférences locales (thème, office actuel)
-    const saved = localStorage.getItem('trackVisitesState_v2');
-    if (saved) {
-        state = { ...state, ...JSON.parse(saved) };
+    // 1. Charger les préférences locales (on tente la V2 puis la V1)
+    const savedV2 = localStorage.getItem('trackVisitesState_v2');
+    const savedV1 = localStorage.getItem('trackVisitesState');
+    
+    if (savedV2) {
+        state = { ...state, ...JSON.parse(savedV2) };
+    }
+    
+    if (savedV1) {
+        const parsedV1 = JSON.parse(savedV1);
+        // On fusionne les données historiques de la V1 si elles ne sont pas dans la V2
+        if (parsedV1.historyData) {
+            state.historyData = { ...parsedV1.historyData, ...state.historyData };
+        }
     }
 
     // 2. Charger les données historiques depuis Supabase
@@ -184,7 +194,11 @@ async function forceSyncLocalToSupabase() {
 }
 
 async function migrateLocalDataToSupabase() {
-    const saved = localStorage.getItem('trackVisitesState_v2');
+    // On vérifie d'abord la V2, puis la V1 (ancienne version sans Supabase)
+    const savedV2 = localStorage.getItem('trackVisitesState_v2');
+    const savedV1 = localStorage.getItem('trackVisitesState');
+    const saved = savedV2 || savedV1;
+    
     if (!saved) return;
     
     const migrationDone = localStorage.getItem('migration_to_supabase_done');
