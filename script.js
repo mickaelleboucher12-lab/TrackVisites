@@ -403,23 +403,28 @@ function initDashboard() {
 }
 
 function setDashboardPeriod(period) {
-    dashboardPeriod = period;
+    console.log("Changement de période vers:", period);
+    try {
+        dashboardPeriod = period;
 
-    // Update Button UI
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.remove('active');
-        const periodText = {
-            'monthly': 'Mensuel',
-            'quarterly': 'Trimestriel',
-            'semiannual': 'Semestriel',
-            '9months': '9 Mois',
-            'annual': 'Annuel',
-            'global': 'Vue Globale'
-        }[period];
-        if (btn.textContent === periodText) btn.classList.add('active');
-    });
+        // Update Button UI
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+            const txt = btn.textContent.trim();
+            if ((period === 'monthly' && txt === 'Mensuel') ||
+                (period === 'quarterly' && txt === 'Trimestriel') ||
+                (period === 'semiannual' && txt === 'Semestriel') ||
+                (period === '9months' && txt === '9 Mois') ||
+                (period === 'annual' && txt === 'Annuel') ||
+                (period === 'global' && txt === 'Vue Globale')) {
+                btn.classList.add('active');
+            }
+        });
 
-    renderDashboard();
+        renderDashboard();
+    } catch (err) {
+        console.error("Erreur switch période:", err);
+    }
 }
 
 function getOfficeKey(name) {
