@@ -34,6 +34,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyTheme();
     loadCountsForSelectedDate(); 
     updateUI();
+    
+    // Lancer la migration automatique si des données locales existent
+    if (hasSupabase) {
+        migrateLocalDataToSupabase();
+    }
 });
 
 // Initialisation Supabase (si config.js est rempli)
@@ -103,6 +108,35 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
         if (error) throw error;
     } catch (err) {
         console.error("Erreur lors de la synchro Supabase:", err.message);
+    }
+}
+
+async function migrateLocalDataToSupabase() {
+    const saved = localStorage.getItem('trackVisitesState_v2');
+    if (!saved) return;
+    
+    const migrationDone = localStorage.getItem('migration_to_supabase_done');
+    if (migrationDone === 'true') return;
+
+    const localState = JSON.parse(saved);
+    const history = localState.historyData;
+    if (!history || Object.keys(history).length === 0) return;
+
+    console.log("--- [Migration] Début de l'envoi des données locales vers Supabase ---");
+    
+    let totalMigrated = 0;
+    for (const office in history) {
+        for (const date in history[office]) {
+            const data = history[office][date];
+            await syncVisitToSupabase(office, date, data.locataire, data.prestataire, data.isConsolidation || false);
+            totalMigrated++;
+        }
+    }
+
+    if (totalMigrated > 0) {
+        localStorage.setItem('migration_to_supabase_done', 'true');
+        console.log(`--- [Migration] ${totalMigrated} entrées synchronisées avec succès ! ---`);
+        alert(`${totalMigrated} données locales ont été synchronisées avec la nouvelle base de données partagée.`);
     }
 }
 
