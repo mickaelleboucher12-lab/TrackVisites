@@ -10,23 +10,14 @@ let state = {
     lastActivity: '--:--'
 };
 
-// DOM Elements
-const body = document.body;
-const themeToggle = document.getElementById('theme-toggle');
-const currentDateEl = document.getElementById('current-date');
-const officeSelect = document.getElementById('office-select');
-const countLocataireEl = document.getElementById('count-locataire');
-const countPrestataireEl = document.getElementById('count-prestataire');
-const totalVisitesEl = document.getElementById('total-visites');
-const lastActivityEl = document.getElementById('last-activity');
-
-// Navigation
-const navItems = document.querySelectorAll('.nav-item');
-const viewSections = document.querySelectorAll('.view-section');
+// DOM Elements (global references)
+let themeToggle, currentDateEl, officeSelect, countLocataireEl, countPrestataireEl, totalVisitesEl, lastActivityEl, navItems, viewSections;
 
 // Initialize
 // Initialisation Supabase (si config.js est rempli)
-const hasSupabase = typeof supabase !== 'undefined' && SUPABASE_URL.indexOf('supabase.co') !== -1 && SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+const hasSupabase = (typeof supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined') && 
+                    SUPABASE_URL.indexOf('supabase.co') !== -1 && 
+                    SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
 
 async function initAppData() {
     try {
@@ -47,6 +38,17 @@ async function initAppData() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOM chargé, initialisation...");
+    
+    // Initialize Elements
+    themeToggle = document.getElementById('theme-toggle');
+    currentDateEl = document.getElementById('current-date');
+    officeSelect = document.getElementById('office-select');
+    countLocataireEl = document.getElementById('count-locataire');
+    countPrestataireEl = document.getElementById('count-prestataire');
+    totalVisitesEl = document.getElementById('total-visites');
+    lastActivityEl = document.getElementById('last-activity');
+    navItems = document.querySelectorAll('.nav-item');
+    viewSections = document.querySelectorAll('.view-section');
     
     // 1. Initialiser la date et le thème
     try {
