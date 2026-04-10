@@ -16,11 +16,11 @@ let themeToggle, currentDateEl, officeSelect, countLocataireEl, countPrestataire
 var currentChart = null;
 var consolidationMonth = '';
 
-// Initialize
 // Initialisation Supabase (si config.js est rempli)
-const hasSupabase = (typeof supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined') &&
+const hasSupabase = (typeof supabaseDB !== 'undefined' && typeof SUPABASE_URL !== 'undefined') &&
     SUPABASE_URL.indexOf('supabase.co') !== -1 &&
     SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+console.log('[Supabase] hasSupabase =', hasSupabase, '| supabaseDB =', typeof supabaseDB);
 
 async function initAppData() {
     try {
@@ -90,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function subscribeToChanges() {
     if (!hasSupabase) return;
 
-    supabase
+    supabaseDB
         .channel('public:visits')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, async (payload) => {
             console.log('Changement détecté en base !', payload);
@@ -132,7 +132,7 @@ async function loadState() {
         }
     }
 
-    // 2. Charger les données historiques depuis Supabase
+    // 2. Charger les données historiques depuis supabaseDB
     if (hasSupabase) {
         await fetchHistoryFromSupabase();
     }
@@ -140,7 +140,7 @@ async function loadState() {
 
 async function fetchHistoryFromSupabase() {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseDB
             .from('visits')
             .select('*');
 
@@ -159,7 +159,7 @@ async function fetchHistoryFromSupabase() {
 
         state.historyData = newHistory;
     } catch (err) {
-        console.error("Erreur lors du chargement Supabase:", err.message);
+        console.error("Erreur lors du chargement supabaseDB:", err.message);
     }
 }
 
@@ -167,7 +167,7 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
     if (!hasSupabase) return;
 
     try {
-        const { error } = await supabase
+        const { error } = await supabaseDB
             .from('visits')
             .upsert({
                 office: office,
@@ -179,7 +179,7 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
 
         if (error) throw error;
     } catch (err) {
-        console.error("Erreur lors de la synchro Supabase:", err.message);
+        console.error("Erreur lors de la synchro supabaseDB:", err.message);
     }
 }
 
@@ -213,7 +213,7 @@ async function forceSyncLocalToSupabase() {
 }
 
 async function migrateLocalDataToSupabase() {
-    // On vérifie d'abord la V2, puis la V1 (ancienne version sans Supabase)
+    // On vérifie d'abord la V2, puis la V1 (ancienne version sans supabaseDB)
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
     const saved = savedV2 || savedV1;
@@ -227,7 +227,7 @@ async function migrateLocalDataToSupabase() {
     const history = localState.historyData;
     if (!history || Object.keys(history).length === 0) return;
 
-    console.log("--- [Migration] Début de l'envoi des données locales vers Supabase ---");
+    console.log("--- [Migration] Début de l'envoi des données locales vers supabaseDB ---");
 
     let totalMigrated = 0;
     for (const office in history) {
