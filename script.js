@@ -7,25 +7,28 @@ let state = {
     },
     historyData: {}, // Format: { 'office_id': { 'YYYY-MM-DD': { locataire: X, prestataire: Y } } }
     theme: 'dark',
-    lastActivity: '--:--'
+    lastActivity: '--:--',
+    dashboardPeriod: 'monthly'
 };
 
 // DOM Elements (global references)
 let themeToggle, currentDateEl, officeSelect, countLocataireEl, countPrestataireEl, totalVisitesEl, lastActivityEl, navItems, viewSections;
+var currentChart = null;
+var consolidationMonth = '';
 
 // Initialize
 // Initialisation Supabase (si config.js est rempli)
-const hasSupabase = (typeof supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined') && 
-                    SUPABASE_URL.indexOf('supabase.co') !== -1 && 
-                    SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+const hasSupabase = (typeof supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined') &&
+    SUPABASE_URL.indexOf('supabase.co') !== -1 &&
+    SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
 
 async function initAppData() {
     try {
         await loadState();
         await seedDataIfEmpty();
-        loadCountsForSelectedDate(); 
+        loadCountsForSelectedDate();
         updateUI();
-        
+
         if (hasSupabase) {
             await migrateLocalDataToSupabase();
             subscribeToChanges(); // Activer le temps réel
@@ -38,7 +41,7 @@ async function initAppData() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOM chargé, initialisation...");
-    
+
     // Rendre les fonctions globales accessibles pour les onclick du HTML
     window.updateCount = updateCount;
     window.setDashboardPeriod = setDashboardPeriod;
@@ -49,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.saveConsolidationTotals = saveConsolidationTotals;
     window.saveHistoryEdit = saveHistoryEdit;
     window.forceSyncLocalToSupabase = forceSyncLocalToSupabase;
-    
+
     // Initialize Elements
     themeToggle = document.getElementById('theme-toggle');
     currentDateEl = document.getElementById('current-date');
@@ -60,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lastActivityEl = document.getElementById('last-activity');
     navItems = document.querySelectorAll('.nav-item');
     viewSections = document.querySelectorAll('.view-section');
-    
+
     // 1. Initialiser la date et le thème
     try {
         const now = new Date();
@@ -86,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function subscribeToChanges() {
     if (!hasSupabase) return;
-    
+
     supabase
         .channel('public:visits')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, async (payload) => {
@@ -94,7 +97,7 @@ function subscribeToChanges() {
             await fetchHistoryFromSupabase();
             loadCountsForSelectedDate();
             updateUI();
-            
+
             // Si le dashboard est ouvert, on le rafraîchit aussi
             if (document.getElementById('dashboard-section').classList.contains('active')) {
                 renderDashboard();
@@ -106,7 +109,7 @@ function subscribeToChanges() {
 // State Persistence Helper
 async function saveState(syncDB = true) {
     localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
-    
+
     if (syncDB && hasSupabase) {
         await syncVisitToSupabase(state.currentOffice, state.currentDate, state.counts.locataire, state.counts.prestataire);
     }
@@ -116,11 +119,11 @@ async function loadState() {
     // 1. Charger les préférences locales (on tente la V2 puis la V1)
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
-    
+
     if (savedV2) {
         state = { ...state, ...JSON.parse(savedV2) };
     }
-    
+
     if (savedV1) {
         const parsedV1 = JSON.parse(savedV1);
         // On fusionne les données historiques de la V1 si elles ne sont pas dans la V2
@@ -183,7 +186,7 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
 async function forceSyncLocalToSupabase() {
     const btn = document.getElementById('force-sync-db');
     if (!btn) return;
-    
+
     const originalContent = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="spin" data-lucide="loader-2"></i> Synchronisation...';
@@ -214,9 +217,9 @@ async function migrateLocalDataToSupabase() {
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
     const saved = savedV2 || savedV1;
-    
+
     if (!saved) return;
-    
+
     const migrationDone = localStorage.getItem('migration_to_supabase_done');
     if (migrationDone === 'true') return;
 
@@ -225,7 +228,7 @@ async function migrateLocalDataToSupabase() {
     if (!history || Object.keys(history).length === 0) return;
 
     console.log("--- [Migration] Début de l'envoi des données locales vers Supabase ---");
-    
+
     let totalMigrated = 0;
     for (const office in history) {
         for (const date in history[office]) {
@@ -347,7 +350,7 @@ async function saveHistoryEdit() {
     alert('Modifications enregistrées avec succès !');
 }
 
-let consolidationMonth = '';
+// Phase 3: History & Data Management
 
 function openConsolidationModal(month) {
     consolidationMonth = month;
@@ -395,8 +398,7 @@ async function saveConsolidationTotals() {
 }
 
 // Phase 4: Analytics & Dashboards
-let currentChart = null;
-let dashboardPeriod = 'monthly';
+// Phase 4: Analytics & Dashboards
 
 function initDashboard() {
     renderDashboard();
@@ -405,7 +407,7 @@ function initDashboard() {
 function setDashboardPeriod(period) {
     console.log("Changement de période vers:", period);
     try {
-        dashboardPeriod = period;
+        state.dashboardPeriod = period;
 
         // Update Button UI
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -475,7 +477,7 @@ function renderDashboard() {
     let periodTotalPre = 0;
     let periodTotalDays = 0;
 
-    if (dashboardPeriod === 'global') {
+    if (state.dashboardPeriod === 'global') {
         labels = ['Montreux', 'La Chartrie', 'St Exupéry', 'Le Pré', 'La Suze'];
         title = "Comparaison Globale des Bureaux (Année en cours)";
 
@@ -509,7 +511,7 @@ function renderDashboard() {
     } else {
         let startMonth, numMonths;
 
-        if (dashboardPeriod === 'monthly') {
+        if (state.dashboardPeriod === 'monthly') {
             title = `Analyse du mois (${monthNamesFr[currentMonth - 1]} ${currentYear})`;
             startMonth = currentMonth;
             numMonths = 1;
@@ -540,17 +542,17 @@ function renderDashboard() {
                 jours: totals.days
             });
         } else {
-            if (dashboardPeriod === 'quarterly') {
+            if (state.dashboardPeriod === 'quarterly') {
                 const quarter = Math.floor((currentMonth - 1) / 3);
                 startMonth = quarter * 3 + 1;
                 numMonths = 3;
                 title = `Analyse Trimestrielle (T${quarter + 1} ${currentYear})`;
-            } else if (dashboardPeriod === 'semiannual') {
+            } else if (state.dashboardPeriod === 'semiannual') {
                 const half = Math.floor((currentMonth - 1) / 6);
                 startMonth = half * 6 + 1;
                 numMonths = 6;
                 title = `Analyse Semestrielle (S${half + 1} ${currentYear})`;
-            } else if (dashboardPeriod === '9months') {
+            } else if (state.dashboardPeriod === '9months') {
                 startMonth = 1;
                 numMonths = 9;
                 title = `Analyse sur 9 Mois (${currentYear})`;
@@ -752,7 +754,7 @@ function updateDateDisplay() {
     const now = new Date();
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     const localeStr = now.toLocaleDateString('fr-FR', options);
-    
+
     const currentDateEl = document.getElementById('current-date');
     if (currentDateEl) currentDateEl.textContent = localeStr;
 
@@ -762,7 +764,7 @@ function updateDateDisplay() {
 
     const bannerDay = document.getElementById('banner-day-name');
     const bannerFull = document.getElementById('banner-full-date');
-    
+
     if (bannerDay) bannerDay.textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1);
     if (bannerFull) bannerFull.textContent = fullDate;
 }
