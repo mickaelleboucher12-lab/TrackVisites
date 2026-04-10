@@ -245,13 +245,7 @@ async function migrateLocalDataToSupabase() {
     }
 }
 
-// Office Selection
-officeSelect.addEventListener('change', async (e) => {
-    state.currentOffice = e.target.value;
-    loadCountsForSelectedDate();
-    updateUI();
-    await saveState();
-});
+// Office Selection — moved inside DOMContentLoaded (see attachNavigationListeners)
 
 // Load Counts for specific date and office
 function loadCountsForSelectedDate() {
@@ -741,6 +735,16 @@ function attachNavigationListeners() {
     const forceSyncBtn = document.getElementById('force-sync-db');
     if (forceSyncBtn) {
         forceSyncBtn.addEventListener('click', forceSyncLocalToSupabase);
+    }
+
+    // Office Selection
+    if (officeSelect) {
+        officeSelect.addEventListener('change', async (e) => {
+            state.currentOffice = e.target.value;
+            loadCountsForSelectedDate();
+            updateUI();
+            await saveState();
+        });
     }
 }
 
