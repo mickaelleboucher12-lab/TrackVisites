@@ -15,6 +15,8 @@ let state = {
 let themeToggle, currentDateEl, officeSelect, countLocataireEl, countPrestataireEl, totalVisitesEl, lastActivityEl, navItems, viewSections;
 var currentChart = null;
 var consolidationMonth = '';
+var lastSyncedCounts = null; // Dernière valeur envoyée à Supabase (pour éviter d'écraser notre propre écho)
+var appInitialized = false;  // Passe à true après le premier chargement complet
 
 // Initialisation Supabase (si config.js est rempli)
 const hasSupabase = (typeof supabaseDB !== 'undefined' && typeof SUPABASE_URL !== 'undefined') &&
@@ -80,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 3. Charger les données en arrière-plan
     initAppData().then(() => {
+        appInitialized = true; // Les compteurs locaux sont maintenant la source de vérité
         // Rafraîchissement automatique si on est sur le dashboard
         if (document.getElementById('dashboard-section').classList.contains('active')) {
             renderDashboard();
@@ -93,9 +96,23 @@ function subscribeToChanges() {
     supabaseDB
         .channel('public:visits')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, async (payload) => {
-            console.log('Changement détecté en base !', payload);
+            const rec = payload.new;
+            if (!rec) return;
+
+            // Ignorer uniquement l'écho de notre propre sauvegarde
+            if (lastSyncedCounts &&
+                rec.office === state.currentOffice &&
+                rec.visit_date === state.currentDate &&
+                rec.locataire_count === lastSyncedCounts.locataire &&
+                rec.prestataire_count === lastSyncedCounts.prestataire) {
+                console.log('[Supabase] Écho ignoré (notre propre sauvegarde)');
+                return;
+            }
+
+            console.log('[Supabase] Mise à jour externe reçue :', rec);
+            // fetchHistoryFromSupabase préserve déjà state.counts pour aujourd'hui —
+            // pas besoin de rappeler loadCountsForSelectedDate() qui écraserait les valeurs locales.
             await fetchHistoryFromSupabase();
-            loadCountsForSelectedDate();
             updateUI();
 
             // Si le dashboard est ouvert, on le rafraîchit aussi
@@ -104,6 +121,15 @@ function subscribeToChanges() {
             }
         })
         .subscribe();
+
+    // Polling de secours toutes les 30 secondes (filet de sécurité si la subscription WebSocket coupe)
+    // fetchHistoryFromSupabase préserve les compteurs locaux du jour — pas de loadCountsForSelectedDate().
+    setInterval(async () => {
+        if (!hasSupabase) return;
+        await fetchHistoryFromSupabase();
+        updateUI();
+        console.log('[Polling] Rafraîchissement automatique depuis Supabase');
+    }, 30000);
 }
 
 // State Persistence Helper
@@ -111,17 +137,31 @@ async function saveState(syncDB = true) {
     localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
 
     if (syncDB && hasSupabase) {
+        // Mémoriser ce qu'on envoie pour détecter l'écho dans la subscription
+        lastSyncedCounts = { locataire: state.counts.locataire, prestataire: state.counts.prestataire };
         await syncVisitToSupabase(state.currentOffice, state.currentDate, state.counts.locataire, state.counts.prestataire);
     }
 }
 
 async function loadState() {
+    const today = state.currentDate; // Date déjà initialisée dans DOMContentLoaded (aujourd'hui)
+
     // 1. Charger les préférences locales (on tente la V2 puis la V1)
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
 
     if (savedV2) {
-        state = { ...state, ...JSON.parse(savedV2) };
+        const parsed = JSON.parse(savedV2);
+        state = { ...state, ...parsed };
+
+        // CORRECTIF : Si la date sauvegardée est différente d'aujourd'hui,
+        // on réinitialise les compteurs journaliers et l'activité.
+        if (state.currentDate !== today) {
+            console.log(`[Init] Nouveau jour détecté (${today}), réinitialisation des compteurs.`);
+            state.currentDate = today;
+            state.counts = { locataire: 0, prestataire: 0 };
+            state.lastActivity = '--:--';
+        }
     }
 
     if (savedV1) {
@@ -158,6 +198,30 @@ async function fetchHistoryFromSupabase() {
         });
 
         state.historyData = newHistory;
+
+        // CORRECTIF RACE CONDITION : après l'initialisation, réinjecter les compteurs locaux
+        // du jour en cours pour éviter que le polling/subscription n'écrase des valeurs
+        // non encore synchronisées. Durant le chargement initial (appInitialized = false),
+        // la DB est la source de vérité et on ne touche pas à historyData.
+        // PROTECTION CRITIQUE : Toujours réinjecter les compteurs locaux actuels
+        // s'ils sont déjà en mémoire (chargés depuis LocalStorage avant l'appel API)
+        if (!state.historyData[state.currentOffice]) {
+            state.historyData[state.currentOffice] = {};
+        }
+        
+        // On ne remplace que si les données locales ont de l'activité (pour éviter d'écraser avec 0/0)
+        const hasLocalActivity = state.counts.locataire > 0 || state.counts.prestataire > 0;
+        if (hasLocalActivity) {
+            state.historyData[state.currentOffice][state.currentDate] = { ...state.counts };
+            console.log('[Supabase] Données cloud reçues, mais compteurs locaux préservés :', state.counts);
+        } else {
+            // Si pas d'activité locale, on prend ce que dit la DB pour aujourd'hui
+            const cloudToday = state.historyData[state.currentOffice][state.currentDate];
+            if (cloudToday) {
+                state.counts = { locataire: cloudToday.locataire, prestataire: cloudToday.prestataire };
+            }
+        }
+
     } catch (err) {
         console.error("Erreur lors du chargement supabaseDB:", err.message);
     }
@@ -178,6 +242,7 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
             }, { onConflict: 'office,visit_date,is_consolidation' });
 
         if (error) throw error;
+        console.log(`[Supabase] Synchro réussie pour ${date} (${office}) : ${loc}/${pre}`);
     } catch (err) {
         console.error("Erreur lors de la synchro supabaseDB:", err.message);
     }
@@ -302,7 +367,15 @@ function loadHistoryData() {
     }
 
     const officeData = state.historyData[state.currentOffice] || {};
-    const dayData = officeData[historyDate] || { locataire: 0, prestataire: 0 };
+    let dayData = officeData[historyDate] || { locataire: 0, prestataire: 0 };
+
+    // FORCE : Si on regarde la date du jour, on utilise les compteurs en direct
+    if (historyDate === state.currentDate) {
+        dayData = { ...state.counts };
+        // On en profite pour mettre à jour historyData au cas où
+        if (!state.historyData[state.currentOffice]) state.historyData[state.currentOffice] = {};
+        state.historyData[state.currentOffice][state.currentDate] = { ...dayData };
+    }
 
     // Show display, hide placeholder
     historyDisplay.classList.remove('hidden');
@@ -718,6 +791,43 @@ function attachNavigationListeners() {
 
             if (targetView === 'dashboard') {
                 setTimeout(initDashboard, 100);
+            }
+
+            // Rafraîchir depuis Supabase quand on revient sur les Compteurs
+            // Note : fetchHistoryFromSupabase() réinjecte state.counts dans historyData après init
+            // → pas besoin de loadCountsForSelectedDate() qui écraserait les valeurs locales.
+            if (targetView === 'counter' && hasSupabase) {
+                fetchHistoryFromSupabase().then(() => {
+                    updateUI();
+                    console.log('[Navigation] Compteurs rafraîchis depuis Supabase');
+                });
+            }
+
+            // Rafraîchir l'historique quand on navigue vers cet onglet
+            if (targetView === 'history') {
+                // Fonction utilitaire : réinjecter state.counts pour aujourd'hui et rafraîchir l'affichage
+                const refreshHistoryView = () => {
+                    // Toujours écraser avec les compteurs locaux du jour (source de vérité absolue)
+                    if (!state.historyData[state.currentOffice]) {
+                        state.historyData[state.currentOffice] = {};
+                    }
+                    state.historyData[state.currentOffice][state.currentDate] = { ...state.counts };
+                    console.log('[Historique] Réinjection state.counts :', state.counts);
+                    const historyDate = document.getElementById('history-date').value;
+                    if (historyDate) loadHistoryData();
+                };
+
+                // 1. Afficher immédiatement les valeurs correctes (sans attendre Supabase)
+                refreshHistoryView();
+
+                // 2. Si Supabase dispo, récupérer les données cloud PUIS réinjecter quand même les compteurs locaux
+                if (hasSupabase) {
+                    fetchHistoryFromSupabase().then(() => {
+                        console.log('[Navigation] Historique rafraîchi depuis Supabase');
+                        // Forcer la réinjection APRÈS le fetch (évite la race condition)
+                        refreshHistoryView();
+                    });
+                }
             }
         });
     });
