@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.saveConsolidationTotals = saveConsolidationTotals;
     window.saveHistoryEdit = saveHistoryEdit;
     window.forceSyncLocalToSupabase = forceSyncLocalToSupabase;
+    window.renderConsolidationButtons = renderConsolidationButtons;
 
     // Initialize Elements
     themeToggle = document.getElementById('theme-toggle');
@@ -78,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         updateUI();
         attachNavigationListeners();
+        initConsolidationYearSelector();
     } catch (e) { console.error("Erreur UI/Navigation:", e); }
 
     // 3. Charger les données en arrière-plan
@@ -418,6 +420,45 @@ async function saveHistoryEdit() {
 }
 
 // Phase 3: History & Data Management
+
+
+// Dynamic year selector and month buttons for consolidation
+function initConsolidationYearSelector() {
+    const select = document.getElementById('consolidation-year');
+    if (!select) return;
+    const currentYear = new Date().getFullYear();
+    select.innerHTML = '';
+    // Offer current year and next 3 years
+    for (let y = currentYear; y <= currentYear + 3; y++) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        select.appendChild(opt);
+    }
+    select.value = currentYear;
+    renderConsolidationButtons();
+}
+
+function renderConsolidationButtons() {
+    const container = document.getElementById('month-buttons-container');
+    const yearSelect = document.getElementById('consolidation-year');
+    if (!container || !yearSelect) return;
+    const year = yearSelect.value;
+    const monthShort = ['Jan.', 'F\u00e9v.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Ao\u00fbt', 'Sep.', 'Oct.', 'Nov.', 'D\u00e9c.'];
+    container.innerHTML = '';
+    for (let m = 1; m <= 12; m++) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-primary btn-month';
+        const monthStr = m.toString().padStart(2, '0');
+        btn.setAttribute('onclick', "openConsolidationModal('" + year + "-" + monthStr + "')");
+        btn.innerHTML = '<i data-lucide="plus-square"></i> ' + monthShort[m - 1] + ' ' + year;
+        container.appendChild(btn);
+    }
+    // Re-initialize lucide icons for the new buttons
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
 
 function openConsolidationModal(month) {
     consolidationMonth = month;

@@ -7,25 +7,30 @@ let state = {
     },
     historyData: {}, // Format: { 'office_id': { 'YYYY-MM-DD': { locataire: X, prestataire: Y } } }
     theme: 'dark',
-    lastActivity: '--:--'
+    lastActivity: '--:--',
+    dashboardPeriod: 'monthly'
 };
 
 // DOM Elements (global references)
 let themeToggle, currentDateEl, officeSelect, countLocataireEl, countPrestataireEl, totalVisitesEl, lastActivityEl, navItems, viewSections;
+var currentChart = null;
+var consolidationMonth = '';
+var lastSyncedCounts = null; // Dernière valeur envoyée à Supabase (pour éviter d'écraser notre propre écho)
+var appInitialized = false;  // Passe à true après le premier chargement complet
 
-// Initialize
 // Initialisation Supabase (si config.js est rempli)
-const hasSupabase = (typeof supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined') && 
-                    SUPABASE_URL.indexOf('supabase.co') !== -1 && 
-                    SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+const hasSupabase = (typeof supabaseDB !== 'undefined' && typeof SUPABASE_URL !== 'undefined') &&
+    SUPABASE_URL.indexOf('supabase.co') !== -1 &&
+    SUPABASE_URL.indexOf('VOTRE_PROJET') === -1;
+console.log('[Supabase] hasSupabase =', hasSupabase, '| supabaseDB =', typeof supabaseDB);
 
 async function initAppData() {
     try {
         await loadState();
         await seedDataIfEmpty();
-        loadCountsForSelectedDate(); 
+        loadCountsForSelectedDate();
         updateUI();
-        
+
         if (hasSupabase) {
             await migrateLocalDataToSupabase();
             subscribeToChanges(); // Activer le temps réel
@@ -38,7 +43,7 @@ async function initAppData() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOM chargé, initialisation...");
-    
+
     // Rendre les fonctions globales accessibles pour les onclick du HTML
     window.updateCount = updateCount;
     window.setDashboardPeriod = setDashboardPeriod;
@@ -49,7 +54,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.saveConsolidationTotals = saveConsolidationTotals;
     window.saveHistoryEdit = saveHistoryEdit;
     window.forceSyncLocalToSupabase = forceSyncLocalToSupabase;
-    
+    window.renderConsolidationButtons = renderConsolidationButtons;
+
     // Initialize Elements
     themeToggle = document.getElementById('theme-toggle');
     currentDateEl = document.getElementById('current-date');
@@ -60,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lastActivityEl = document.getElementById('last-activity');
     navItems = document.querySelectorAll('.nav-item');
     viewSections = document.querySelectorAll('.view-section');
-    
+
     // 1. Initialiser la date et le thème
     try {
         const now = new Date();
@@ -73,10 +79,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         updateUI();
         attachNavigationListeners();
+        initConsolidationYearSelector();
     } catch (e) { console.error("Erreur UI/Navigation:", e); }
 
     // 3. Charger les données en arrière-plan
     initAppData().then(() => {
+        appInitialized = true; // Les compteurs locaux sont maintenant la source de vérité
         // Rafraîchissement automatique si on est sur le dashboard
         if (document.getElementById('dashboard-section').classList.contains('active')) {
             renderDashboard();
@@ -86,41 +94,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function subscribeToChanges() {
     if (!hasSupabase) return;
-    
-    supabase
+
+    supabaseDB
         .channel('public:visits')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'visits' }, async (payload) => {
-            console.log('Changement détecté en base !', payload);
+            const rec = payload.new;
+            if (!rec) return;
+
+            // Ignorer uniquement l'écho de notre propre sauvegarde
+            if (lastSyncedCounts &&
+                rec.office === state.currentOffice &&
+                rec.visit_date === state.currentDate &&
+                rec.locataire_count === lastSyncedCounts.locataire &&
+                rec.prestataire_count === lastSyncedCounts.prestataire) {
+                console.log('[Supabase] Écho ignoré (notre propre sauvegarde)');
+                return;
+            }
+
+            console.log('[Supabase] Mise à jour externe reçue :', rec);
+            // fetchHistoryFromSupabase préserve déjà state.counts pour aujourd'hui —
+            // pas besoin de rappeler loadCountsForSelectedDate() qui écraserait les valeurs locales.
             await fetchHistoryFromSupabase();
-            loadCountsForSelectedDate();
             updateUI();
-            
+
             // Si le dashboard est ouvert, on le rafraîchit aussi
             if (document.getElementById('dashboard-section').classList.contains('active')) {
                 renderDashboard();
             }
         })
         .subscribe();
+
+    // Polling de secours toutes les 30 secondes (filet de sécurité si la subscription WebSocket coupe)
+    // fetchHistoryFromSupabase préserve les compteurs locaux du jour — pas de loadCountsForSelectedDate().
+    setInterval(async () => {
+        if (!hasSupabase) return;
+        await fetchHistoryFromSupabase();
+        updateUI();
+        console.log('[Polling] Rafraîchissement automatique depuis Supabase');
+    }, 30000);
 }
 
 // State Persistence Helper
 async function saveState(syncDB = true) {
     localStorage.setItem('trackVisitesState_v2', JSON.stringify(state));
-    
+
     if (syncDB && hasSupabase) {
+        // Mémoriser ce qu'on envoie pour détecter l'écho dans la subscription
+        lastSyncedCounts = { locataire: state.counts.locataire, prestataire: state.counts.prestataire };
         await syncVisitToSupabase(state.currentOffice, state.currentDate, state.counts.locataire, state.counts.prestataire);
     }
 }
 
 async function loadState() {
+    const today = state.currentDate; // Date déjà initialisée dans DOMContentLoaded (aujourd'hui)
+
     // 1. Charger les préférences locales (on tente la V2 puis la V1)
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
-    
+
     if (savedV2) {
-        state = { ...state, ...JSON.parse(savedV2) };
+        const parsed = JSON.parse(savedV2);
+        state = { ...state, ...parsed };
+
+        // CORRECTIF : Si la date sauvegardée est différente d'aujourd'hui,
+        // on réinitialise les compteurs journaliers et l'activité.
+        if (state.currentDate !== today) {
+            console.log(`[Init] Nouveau jour détecté (${today}), réinitialisation des compteurs.`);
+            state.currentDate = today;
+            state.counts = { locataire: 0, prestataire: 0 };
+            state.lastActivity = '--:--';
+        }
     }
-    
+
     if (savedV1) {
         const parsedV1 = JSON.parse(savedV1);
         // On fusionne les données historiques de la V1 si elles ne sont pas dans la V2
@@ -129,7 +174,7 @@ async function loadState() {
         }
     }
 
-    // 2. Charger les données historiques depuis Supabase
+    // 2. Charger les données historiques depuis supabaseDB
     if (hasSupabase) {
         await fetchHistoryFromSupabase();
     }
@@ -137,7 +182,7 @@ async function loadState() {
 
 async function fetchHistoryFromSupabase() {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseDB
             .from('visits')
             .select('*');
 
@@ -155,8 +200,32 @@ async function fetchHistoryFromSupabase() {
         });
 
         state.historyData = newHistory;
+
+        // CORRECTIF RACE CONDITION : après l'initialisation, réinjecter les compteurs locaux
+        // du jour en cours pour éviter que le polling/subscription n'écrase des valeurs
+        // non encore synchronisées. Durant le chargement initial (appInitialized = false),
+        // la DB est la source de vérité et on ne touche pas à historyData.
+        // PROTECTION CRITIQUE : Toujours réinjecter les compteurs locaux actuels
+        // s'ils sont déjà en mémoire (chargés depuis LocalStorage avant l'appel API)
+        if (!state.historyData[state.currentOffice]) {
+            state.historyData[state.currentOffice] = {};
+        }
+        
+        // On ne remplace que si les données locales ont de l'activité (pour éviter d'écraser avec 0/0)
+        const hasLocalActivity = state.counts.locataire > 0 || state.counts.prestataire > 0;
+        if (hasLocalActivity) {
+            state.historyData[state.currentOffice][state.currentDate] = { ...state.counts };
+            console.log('[Supabase] Données cloud reçues, mais compteurs locaux préservés :', state.counts);
+        } else {
+            // Si pas d'activité locale, on prend ce que dit la DB pour aujourd'hui
+            const cloudToday = state.historyData[state.currentOffice][state.currentDate];
+            if (cloudToday) {
+                state.counts = { locataire: cloudToday.locataire, prestataire: cloudToday.prestataire };
+            }
+        }
+
     } catch (err) {
-        console.error("Erreur lors du chargement Supabase:", err.message);
+        console.error("Erreur lors du chargement supabaseDB:", err.message);
     }
 }
 
@@ -164,7 +233,7 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
     if (!hasSupabase) return;
 
     try {
-        const { error } = await supabase
+        const { error } = await supabaseDB
             .from('visits')
             .upsert({
                 office: office,
@@ -175,15 +244,16 @@ async function syncVisitToSupabase(office, date, loc, pre, isConso = false) {
             }, { onConflict: 'office,visit_date,is_consolidation' });
 
         if (error) throw error;
+        console.log(`[Supabase] Synchro réussie pour ${date} (${office}) : ${loc}/${pre}`);
     } catch (err) {
-        console.error("Erreur lors de la synchro Supabase:", err.message);
+        console.error("Erreur lors de la synchro supabaseDB:", err.message);
     }
 }
 
 async function forceSyncLocalToSupabase() {
     const btn = document.getElementById('force-sync-db');
     if (!btn) return;
-    
+
     const originalContent = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="spin" data-lucide="loader-2"></i> Synchronisation...';
@@ -210,13 +280,13 @@ async function forceSyncLocalToSupabase() {
 }
 
 async function migrateLocalDataToSupabase() {
-    // On vérifie d'abord la V2, puis la V1 (ancienne version sans Supabase)
+    // On vérifie d'abord la V2, puis la V1 (ancienne version sans supabaseDB)
     const savedV2 = localStorage.getItem('trackVisitesState_v2');
     const savedV1 = localStorage.getItem('trackVisitesState');
     const saved = savedV2 || savedV1;
-    
+
     if (!saved) return;
-    
+
     const migrationDone = localStorage.getItem('migration_to_supabase_done');
     if (migrationDone === 'true') return;
 
@@ -224,8 +294,8 @@ async function migrateLocalDataToSupabase() {
     const history = localState.historyData;
     if (!history || Object.keys(history).length === 0) return;
 
-    console.log("--- [Migration] Début de l'envoi des données locales vers Supabase ---");
-    
+    console.log("--- [Migration] Début de l'envoi des données locales vers supabaseDB ---");
+
     let totalMigrated = 0;
     for (const office in history) {
         for (const date in history[office]) {
@@ -242,13 +312,7 @@ async function migrateLocalDataToSupabase() {
     }
 }
 
-// Office Selection
-officeSelect.addEventListener('change', async (e) => {
-    state.currentOffice = e.target.value;
-    loadCountsForSelectedDate();
-    updateUI();
-    await saveState();
-});
+// Office Selection — moved inside DOMContentLoaded (see attachNavigationListeners)
 
 // Load Counts for specific date and office
 function loadCountsForSelectedDate() {
@@ -305,7 +369,15 @@ function loadHistoryData() {
     }
 
     const officeData = state.historyData[state.currentOffice] || {};
-    const dayData = officeData[historyDate] || { locataire: 0, prestataire: 0 };
+    let dayData = officeData[historyDate] || { locataire: 0, prestataire: 0 };
+
+    // FORCE : Si on regarde la date du jour, on utilise les compteurs en direct
+    if (historyDate === state.currentDate) {
+        dayData = { ...state.counts };
+        // On en profite pour mettre à jour historyData au cas où
+        if (!state.historyData[state.currentOffice]) state.historyData[state.currentOffice] = {};
+        state.historyData[state.currentOffice][state.currentDate] = { ...dayData };
+    }
 
     // Show display, hide placeholder
     historyDisplay.classList.remove('hidden');
@@ -347,7 +419,46 @@ async function saveHistoryEdit() {
     alert('Modifications enregistrées avec succès !');
 }
 
-let consolidationMonth = '';
+// Phase 3: History & Data Management
+
+
+// Dynamic year selector and month buttons for consolidation
+function initConsolidationYearSelector() {
+    const select = document.getElementById('consolidation-year');
+    if (!select) return;
+    const currentYear = new Date().getFullYear();
+    select.innerHTML = '';
+    // Offer current year and next 3 years
+    for (let y = currentYear; y <= currentYear + 3; y++) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        select.appendChild(opt);
+    }
+    select.value = currentYear;
+    renderConsolidationButtons();
+}
+
+function renderConsolidationButtons() {
+    const container = document.getElementById('month-buttons-container');
+    const yearSelect = document.getElementById('consolidation-year');
+    if (!container || !yearSelect) return;
+    const year = yearSelect.value;
+    const monthShort = ['Jan.', 'F\u00e9v.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Ao\u00fbt', 'Sep.', 'Oct.', 'Nov.', 'D\u00e9c.'];
+    container.innerHTML = '';
+    for (let m = 1; m <= 12; m++) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-primary btn-month';
+        const monthStr = m.toString().padStart(2, '0');
+        btn.setAttribute('onclick', "openConsolidationModal('" + year + "-" + monthStr + "')");
+        btn.innerHTML = '<i data-lucide="plus-square"></i> ' + monthShort[m - 1] + ' ' + year;
+        container.appendChild(btn);
+    }
+    // Re-initialize lucide icons for the new buttons
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
 
 function openConsolidationModal(month) {
     consolidationMonth = month;
@@ -395,8 +506,7 @@ async function saveConsolidationTotals() {
 }
 
 // Phase 4: Analytics & Dashboards
-let currentChart = null;
-let dashboardPeriod = 'monthly';
+// Phase 4: Analytics & Dashboards
 
 function initDashboard() {
     renderDashboard();
@@ -405,7 +515,7 @@ function initDashboard() {
 function setDashboardPeriod(period) {
     console.log("Changement de période vers:", period);
     try {
-        dashboardPeriod = period;
+        state.dashboardPeriod = period;
 
         // Update Button UI
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -475,7 +585,7 @@ function renderDashboard() {
     let periodTotalPre = 0;
     let periodTotalDays = 0;
 
-    if (dashboardPeriod === 'global') {
+    if (state.dashboardPeriod === 'global') {
         labels = ['Montreux', 'La Chartrie', 'St Exupéry', 'Le Pré', 'La Suze'];
         title = "Comparaison Globale des Bureaux (Année en cours)";
 
@@ -509,7 +619,7 @@ function renderDashboard() {
     } else {
         let startMonth, numMonths;
 
-        if (dashboardPeriod === 'monthly') {
+        if (state.dashboardPeriod === 'monthly') {
             title = `Analyse du mois (${monthNamesFr[currentMonth - 1]} ${currentYear})`;
             startMonth = currentMonth;
             numMonths = 1;
@@ -540,17 +650,17 @@ function renderDashboard() {
                 jours: totals.days
             });
         } else {
-            if (dashboardPeriod === 'quarterly') {
+            if (state.dashboardPeriod === 'quarterly') {
                 const quarter = Math.floor((currentMonth - 1) / 3);
                 startMonth = quarter * 3 + 1;
                 numMonths = 3;
                 title = `Analyse Trimestrielle (T${quarter + 1} ${currentYear})`;
-            } else if (dashboardPeriod === 'semiannual') {
+            } else if (state.dashboardPeriod === 'semiannual') {
                 const half = Math.floor((currentMonth - 1) / 6);
                 startMonth = half * 6 + 1;
                 numMonths = 6;
                 title = `Analyse Semestrielle (S${half + 1} ${currentYear})`;
-            } else if (dashboardPeriod === '9months') {
+            } else if (state.dashboardPeriod === '9months') {
                 startMonth = 1;
                 numMonths = 9;
                 title = `Analyse sur 9 Mois (${currentYear})`;
@@ -723,6 +833,43 @@ function attachNavigationListeners() {
             if (targetView === 'dashboard') {
                 setTimeout(initDashboard, 100);
             }
+
+            // Rafraîchir depuis Supabase quand on revient sur les Compteurs
+            // Note : fetchHistoryFromSupabase() réinjecte state.counts dans historyData après init
+            // → pas besoin de loadCountsForSelectedDate() qui écraserait les valeurs locales.
+            if (targetView === 'counter' && hasSupabase) {
+                fetchHistoryFromSupabase().then(() => {
+                    updateUI();
+                    console.log('[Navigation] Compteurs rafraîchis depuis Supabase');
+                });
+            }
+
+            // Rafraîchir l'historique quand on navigue vers cet onglet
+            if (targetView === 'history') {
+                // Fonction utilitaire : réinjecter state.counts pour aujourd'hui et rafraîchir l'affichage
+                const refreshHistoryView = () => {
+                    // Toujours écraser avec les compteurs locaux du jour (source de vérité absolue)
+                    if (!state.historyData[state.currentOffice]) {
+                        state.historyData[state.currentOffice] = {};
+                    }
+                    state.historyData[state.currentOffice][state.currentDate] = { ...state.counts };
+                    console.log('[Historique] Réinjection state.counts :', state.counts);
+                    const historyDate = document.getElementById('history-date').value;
+                    if (historyDate) loadHistoryData();
+                };
+
+                // 1. Afficher immédiatement les valeurs correctes (sans attendre Supabase)
+                refreshHistoryView();
+
+                // 2. Si Supabase dispo, récupérer les données cloud PUIS réinjecter quand même les compteurs locaux
+                if (hasSupabase) {
+                    fetchHistoryFromSupabase().then(() => {
+                        console.log('[Navigation] Historique rafraîchi depuis Supabase');
+                        // Forcer la réinjection APRÈS le fetch (évite la race condition)
+                        refreshHistoryView();
+                    });
+                }
+            }
         });
     });
 
@@ -740,6 +887,16 @@ function attachNavigationListeners() {
     if (forceSyncBtn) {
         forceSyncBtn.addEventListener('click', forceSyncLocalToSupabase);
     }
+
+    // Office Selection
+    if (officeSelect) {
+        officeSelect.addEventListener('change', async (e) => {
+            state.currentOffice = e.target.value;
+            loadCountsForSelectedDate();
+            updateUI();
+            await saveState();
+        });
+    }
 }
 
 function applyTheme() {
@@ -752,7 +909,7 @@ function updateDateDisplay() {
     const now = new Date();
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     const localeStr = now.toLocaleDateString('fr-FR', options);
-    
+
     const currentDateEl = document.getElementById('current-date');
     if (currentDateEl) currentDateEl.textContent = localeStr;
 
@@ -762,7 +919,7 @@ function updateDateDisplay() {
 
     const bannerDay = document.getElementById('banner-day-name');
     const bannerFull = document.getElementById('banner-full-date');
-    
+
     if (bannerDay) bannerDay.textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1);
     if (bannerFull) bannerFull.textContent = fullDate;
 }

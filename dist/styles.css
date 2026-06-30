@@ -474,6 +474,7 @@ h3 {
 /* History Page Styles */
 .history-controls {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 2rem;
@@ -522,6 +523,53 @@ h3 {
     background: var(--accent-hover);
     transform: translateY(-2px);
 }
+
+/* Consolidation Section - Year Selector & Month Buttons */
+.consolidation-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    margin-top: 0.5rem;
+}
+
+.year-selector-group {
+    justify-content: flex-start;
+    width: fit-content;
+}
+
+#consolidation-year {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    outline: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: 8px;
+    transition: var(--transition);
+}
+
+#consolidation-year:hover,
+#consolidation-year:focus {
+    border-color: var(--accent);
+}
+
+.month-buttons-group {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 0.5rem !important;
+    padding: 0.75rem 1rem !important;
+}
+
+.btn-month {
+    padding: 0.5rem 1rem !important;
+    font-size: 0.85rem;
+    border-radius: 10px !important;
+    white-space: nowrap;
+}
+
 
 .btn-secondary {
     background: transparent;

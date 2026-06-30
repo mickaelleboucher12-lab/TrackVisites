@@ -164,13 +164,14 @@
                             Forcer la synchronisation vers le Cloud
                         </button>
                     </div>
-                    <div class="control-group">
-                        <button class="btn-primary" onclick="openConsolidationModal('2026-01')">
-                            <i data-lucide="plus-square"></i> Jan. 2026
-                        </button>
-                        <button class="btn-primary" onclick="openConsolidationModal('2026-02')">
-                            <i data-lucide="plus-square"></i> Fév. 2026
-                        </button>
+                    <div class="consolidation-section">
+                        <div class="control-group year-selector-group">
+                            <label for="consolidation-year">Année :</label>
+                            <select id="consolidation-year" onchange="renderConsolidationButtons()">
+                            </select>
+                        </div>
+                        <div class="control-group month-buttons-group" id="month-buttons-container">
+                        </div>
                     </div>
                 </div>
 
